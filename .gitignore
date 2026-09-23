@@ -1,0 +1,41 @@
+# Node dependencies
+node_modules/
+*/node_modules/
+
+# Production build artifacts
+dist/
+client/dist/
+build/
+
+# Environment files and credentials (PROTECTED)
+.env
+.env.*
+*.env
+server/.env
+client/.env
+!.env.example
+!server/.env.example
+!client/.env.example
+
+# Student Uploaded Documents & Media
+server/uploads/*
+!server/uploads/.gitkeep
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Operating System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
