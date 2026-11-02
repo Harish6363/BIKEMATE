@@ -16,13 +16,25 @@ const rideSchema = new mongoose.Schema({
   distanceKm: { type: Number, default: 8.5 },
   ratePerKm: { type: Number, default: 2 },
   departureTime: { type: Date, required: true },
-  seatsAvailable: { type: Number, required: true },
+  seatsAvailable: { type: Number, required: true, default: 1, min: 0, max: 1 },
   pricePerSeat: { type: Number, required: true },
   status: { 
     type: String, 
-    enum: ["active", "full", "completed", "cancelled"], 
+    enum: ["active", "full", "in_progress", "completed", "cancelled"], 
     default: "active" 
   },
+  startedAt: { type: Date },
+  completedAt: { type: Date },
+  
+  // Secure Boarding PIN fields (hashed with bcrypt, encrypted for authorized commuter display)
+  boardingPinHash: { type: String },
+  boardingPinEncrypted: { type: String },
+  boardingPinExpiresAt: { type: Date },
+  pinVerificationAttempts: { type: Number, default: 0 },
+  maxPinAttempts: { type: Number, default: 5 },
+
+  bikeName: { type: String, default: "Royal Enfield Hunter" },
+  bikeNumber: { type: String, default: "KA-34-EA-4412" },
   gender: {
     type: String,
     enum: ["female", "male"],
@@ -33,8 +45,9 @@ const rideSchema = new mongoose.Schema({
 
 rideSchema.index({ origin: "2dsphere" });
 rideSchema.index({ destination: "2dsphere" });
-rideSchema.index({ gender: 1 });
-
+rideSchema.index({ gender: 1, status: 1 });
+rideSchema.index({ offeredBy: 1, status: 1 });
+rideSchema.index({ departureTime: 1 });
 
 const Ride = mongoose.model('Ride', rideSchema);
 module.exports = Ride;

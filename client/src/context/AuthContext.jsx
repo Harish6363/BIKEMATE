@@ -1,10 +1,16 @@
 import React, { createContext, useState, useEffect } from 'react';
 import axios from 'axios';
 
+// Ensure Authorization header is present immediately if token exists
+const initialToken = localStorage.getItem('token');
+if (initialToken) {
+  axios.defaults.headers.common['Authorization'] = `Bearer ${initialToken}`;
+}
+
 export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
-  const [token, setToken] = useState(localStorage.getItem('token') || null);
+  const [token, setToken] = useState(initialToken || null);
   const [user, setUser] = useState(() => {
     try {
       const stored = localStorage.getItem('user');
@@ -28,6 +34,7 @@ export const AuthProvider = ({ children }) => {
     if (userData) {
       localStorage.setItem('user', JSON.stringify(userData));
     }
+    axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
     setToken(newToken);
     setUser(userData);
   };
@@ -35,12 +42,20 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    delete axios.defaults.headers.common['Authorization'];
     setToken(null);
     setUser(null);
   };
 
+  const updateUser = (userData) => {
+    if (userData) {
+      localStorage.setItem('user', JSON.stringify(userData));
+      setUser(userData);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, login, logout }}>
+    <AuthContext.Provider value={{ user, token, login, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

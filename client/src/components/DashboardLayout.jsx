@@ -1,6 +1,7 @@
 import React, { useState, useContext } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
+import { NotificationContext } from '../context/NotificationContext';
 import SettingsModal from './SettingsModal';
 import Logo from './Logo';
 import {
@@ -14,12 +15,13 @@ import {
   CheckCircle2,
   Menu,
   X,
-  ShieldAlert
+  ShieldAlert,
+  ArrowRight
 } from 'lucide-react';
-
 
 export default function DashboardLayout({ children }) {
   const { user, logout } = useContext(AuthContext);
+  const { unreadCount, activeToast, dismissToast } = useContext(NotificationContext);
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -54,19 +56,58 @@ export default function DashboardLayout({ children }) {
   };
 
   return (
-    <div className="min-h-screen bg-[#f4f8f7] flex flex-col md:flex-row">
+    <div className="min-h-screen bg-[#f4f8f7] dark:bg-gray-950 flex flex-col md:flex-row transition-colors">
       {/* Mobile Top Header */}
       <div className="md:hidden flex items-center justify-between px-5 py-4 bg-[#0c1924] text-white sticky top-0 z-40">
         <Link to="/dashboard" className="flex items-center">
           <Logo size="sm" variant="dark-bg" />
         </Link>
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="p-1.5 rounded-lg text-gray-300 hover:text-white hover:bg-white/10"
-        >
-          {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-        </button>
+        <div className="flex items-center gap-3">
+          <Link to="/notifications" className="relative p-1.5 rounded-lg text-gray-300 hover:text-white">
+            <Bell className="w-5 h-5" />
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full text-[10px] font-bold flex items-center justify-center animate-pulse">
+                {unreadCount}
+              </span>
+            )}
+          </Link>
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="p-1.5 rounded-lg text-gray-300 hover:text-white hover:bg-white/10"
+          >
+            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+        </div>
       </div>
+
+      {/* Floating Real-time In-App Toast Notification */}
+      {activeToast && (
+        <div className="fixed top-5 right-5 z-50 max-w-sm w-full bg-white border border-emerald-300 rounded-2xl p-4 shadow-2xl animate-fadeIn flex items-start gap-3.5">
+          <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5 text-lg font-bold">
+            🔔
+          </div>
+          <div className="flex-1 min-w-0">
+            <h4 className="text-xs font-bold text-gray-900 truncate">{activeToast.title}</h4>
+            <p className="text-xs text-gray-600 mt-0.5 line-clamp-2 leading-relaxed">{activeToast.message}</p>
+            {activeToast.actionUrl && (
+              <Link
+                to={activeToast.actionUrl}
+                onClick={dismissToast}
+                className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-800 mt-2"
+              >
+                <span>View Now</span>
+                <ArrowRight className="w-3 h-3" />
+              </Link>
+            )}
+          </div>
+          <button
+            onClick={dismissToast}
+            className="text-gray-400 hover:text-gray-600 p-1 shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Sidebar (Desktop + Mobile Drawer) */}
       <aside
@@ -111,7 +152,12 @@ export default function DashboardLayout({ children }) {
                   `}
                 >
                   <Icon className={`w-5 h-5 ${active ? 'text-white' : 'text-[#8b9ca8]'}`} />
-                  <span>{item.name}</span>
+                  <span className="flex-1">{item.name}</span>
+                  {item.name === 'Notifications' && unreadCount > 0 && (
+                    <span className="px-2 py-0.5 text-[11px] font-extrabold bg-red-500 text-white rounded-full animate-pulse shadow-xs">
+                      {unreadCount}
+                    </span>
+                  )}
                 </Link>
               );
             })}
@@ -124,12 +170,12 @@ export default function DashboardLayout({ children }) {
                   flex items-center gap-3.5 px-4 py-3 rounded-2xl text-sm font-medium transition-all duration-200 mt-2
                   ${
                     isActive('/admin')
-                      ? 'bg-rose-600 text-white shadow-sm font-semibold'
-                      : 'text-rose-400 hover:text-white hover:bg-rose-950/40'
+                      ? 'bg-[#00b87c] text-white shadow-sm font-semibold'
+                      : 'text-emerald-400 hover:text-white hover:bg-emerald-950/40'
                   }
                 `}
               >
-                <ShieldAlert className={`w-5 h-5 ${isActive('/admin') ? 'text-white' : 'text-rose-400'}`} />
+                <ShieldAlert className={`w-5 h-5 ${isActive('/admin') ? 'text-white' : 'text-emerald-400'}`} />
                 <span>Admin Portal</span>
               </Link>
             )}
@@ -176,17 +222,22 @@ export default function DashboardLayout({ children }) {
         {/* Top Greeting Header */}
         <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight flex items-center gap-2">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight flex items-center gap-2">
               <span>{getGreeting()}, {displayName}</span>
               <span className="inline-block animate-bounce">👋</span>
             </h1>
-            <p className="text-gray-500 text-sm mt-1">
+            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
               Here's what's happening with your commute today.
             </p>
           </div>
 
           <div className="shrink-0 self-start sm:self-auto flex items-center gap-2 flex-wrap">
-            {user?.gender === 'female' ? (
+            {(user?.role === 'faculty' || user?.userType === 'faculty') ? (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-50 border border-purple-200 text-purple-700 text-xs sm:text-sm font-semibold shadow-xs">
+                <span>👨‍🏫</span>
+                <span>Faculty Commute (Any Driver)</span>
+              </div>
+            ) : user?.gender === 'female' ? (
               <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-pink-50 border border-pink-200 text-pink-700 text-xs sm:text-sm font-semibold shadow-xs">
                 <span>🌸</span>
                 <span>Ladies Commute</span>
@@ -199,7 +250,11 @@ export default function DashboardLayout({ children }) {
             ) : null}
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#e1f7ec] border border-[#98e6c4] text-[#00a86b] text-xs sm:text-sm font-medium shadow-xs">
               <CheckCircle2 className="w-4 h-4 text-[#00a86b] shrink-0" />
-              <span>Verified BITM Student</span>
+              <span>
+                {(user?.role === 'faculty' || user?.userType === 'faculty') 
+                  ? 'Verified BITM Faculty / Staff' 
+                  : 'Verified BITM Student'}
+              </span>
             </div>
           </div>
         </header>

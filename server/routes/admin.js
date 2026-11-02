@@ -9,7 +9,10 @@ const {
   deleteRide,
   getRideRequests,
   getLogs,
-  createLog
+  createLog,
+  getApprovedStudents,
+  addApprovedStudent,
+  deleteApprovedStudent
 } = require('../controllers/adminController');
 
 const router = express.Router();
@@ -33,5 +36,10 @@ router.get('/requests', getRideRequests);
 // 5. System Activity Audit Logs
 router.get('/logs', getLogs);
 router.post('/logs', createLog);
+
+// 6. Pre-Approved College Students / Whitelist
+router.get('/approved-students', getApprovedStudents);
+router.post('/approved-students', addApprovedStudent);
+router.delete('/approved-students/:id', deleteApprovedStudent);
 
 module.exports = router;

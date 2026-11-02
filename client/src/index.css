@@ -38,3 +38,136 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* ================= DARK MODE STYLES ================= */
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  background-color: #0b1118 !important;
+  color: #f1f5f9 !important;
+}
+
+html.dark .bg-\[\#f4f8f7\],
+html.dark [class*="bg-[#f4f8f7]"] {
+  background-color: #0b1118 !important;
+}
+
+html.dark .bg-white {
+  background-color: #121c27 !important;
+  color: #f1f5f9 !important;
+}
+
+html.dark .bg-\[\#fbfdfc\] {
+  background-color: #121c27 !important;
+  color: #f1f5f9 !important;
+}
+
+html.dark .bg-\[\#eaf7f2\] {
+  background-color: #0f2421 !important;
+  border-color: #164338 !important;
+}
+
+html.dark .bg-gray-50 {
+  background-color: #172433 !important;
+}
+
+html.dark .bg-gray-100 {
+  background-color: #1c2b3d !important;
+}
+
+html.dark .bg-gray-100\/90,
+html.dark .bg-gray-100\/80 {
+  background-color: #1c2b3d !important;
+}
+
+html.dark .bg-white\/90,
+html.dark .bg-white\/80,
+html.dark .bg-white\/70 {
+  background-color: #121c27 !important;
+}
+
+html.dark [class*="from-white"] {
+  --tw-gradient-from: #121c27 !important;
+  --tw-gradient-to: #0f1b26 !important;
+  --tw-gradient-stops: var(--tw-gradient-from), #142230, var(--tw-gradient-to) !important;
+}
+
+html.dark .text-gray-900 {
+  color: #f8fafc !important;
+}
+
+html.dark .text-gray-800 {
+  color: #e2e8f0 !important;
+}
+
+html.dark .text-gray-700 {
+  color: #cbd5e1 !important;
+}
+
+html.dark .text-gray-600 {
+  color: #94a3b8 !important;
+}
+
+html.dark .text-gray-500 {
+  color: #8da2b5 !important;
+}
+
+html.dark .border-gray-100,
+html.dark .border-gray-200,
+html.dark .border-gray-200\/80,
+html.dark .border-gray-200\/90,
+html.dark .border-gray-300 {
+  border-color: #223347 !important;
+}
+
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: #172433 !important;
+  color: #f8fafc !important;
+  border-color: #2d4158 !important;
+}
+
+html.dark input:focus,
+html.dark textarea:focus {
+  background-color: #1c2b3d !important;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #33475d;
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #47627e;
+}
+
+/* ================= PRINT / PDF REPORT STYLES ================= */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 11pt !important;
+  }
+  header, nav, .no-print, button:not(.printable-content) {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .table, table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+  th, td {
+    border: 1px solid #ddd !important;
+    padding: 6px 8px !important;
+  }
+  tr {
+    page-break-inside: avoid !important;
+  }
+}
+.print-only {
+  display: none;
+}

@@ -164,7 +164,9 @@ export default function Profile() {
               />
             </div>
             <div>
-              <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">USN (Student ID)</label>
+              <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">
+                {(user?.role === 'faculty' || user?.userType === 'faculty') ? 'Employee ID (Faculty / Staff)' : 'USN (Student ID)'}
+              </label>
               <input
                 type="text"
                 value={usn}
@@ -208,8 +210,10 @@ export default function Profile() {
             </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 py-1">
-              <span className="text-sm font-medium text-gray-600">USN (Student ID)</span>
-              <span className="text-sm font-bold text-gray-900 font-mono tracking-wide">{usn}</span>
+              <span className="text-sm font-medium text-gray-600">
+                {(user?.role === 'faculty' || user?.userType === 'faculty') ? 'Employee ID (Faculty / Staff)' : 'USN (Student ID)'}
+              </span>
+              <span className="text-sm font-bold text-gray-900 font-mono tracking-wide">{user?.employeeId || usn}</span>
             </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 py-1">
@@ -218,7 +222,9 @@ export default function Profile() {
             </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 py-1">
-              <span className="text-sm font-medium text-gray-600">Course / Department</span>
+              <span className="text-sm font-medium text-gray-600">
+                {(user?.role === 'faculty' || user?.userType === 'faculty') ? 'Branch / Department' : 'Course / Department'}
+              </span>
               <span className="text-sm font-bold text-gray-900 text-left sm:text-right">{department}</span>
             </div>
 
@@ -228,17 +234,27 @@ export default function Profile() {
             </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 py-1">
-              <span className="text-sm font-medium text-gray-600">Commute Safety Category</span>
-              <span className={`text-sm font-bold flex items-center gap-1.5 ${user?.gender === 'female' ? 'text-pink-700' : 'text-blue-700'}`}>
-                {user?.gender === 'female' ? '🌸 Ladies (Girls ↔ Girls Only)' : '🛡️ Gents (Boys ↔ Boys Only)'}
-              </span>
+              <span className="text-sm font-medium text-gray-600">Commute Category</span>
+              {(user?.role === 'faculty' || user?.userType === 'faculty') ? (
+                <span className="text-sm font-bold text-purple-700 flex items-center gap-1.5">
+                  <span>✨ Faculty Commute (Any boy or girl can pick up)</span>
+                </span>
+              ) : (
+                <span className={`text-sm font-bold flex items-center gap-1.5 ${user?.gender === 'female' ? 'text-pink-700' : 'text-blue-700'}`}>
+                  {user?.gender === 'female' ? '🌸 Ladies (Girls ↔ Girls Only)' : '🛡️ Gents (Boys ↔ Boys Only)'}
+                </span>
+              )}
             </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 py-1">
               <span className="text-sm font-medium text-gray-600">Verification Status</span>
               <span className="inline-flex items-center gap-1.5 text-sm font-bold text-[#00a86b]">
                 <CheckCircle2 className="w-4 h-4 text-[#00a86b]" />
-                <span>Verified BITM Student</span>
+                <span>
+                  {(user?.role === 'faculty' || user?.userType === 'faculty') 
+                    ? 'Verified BITM Faculty / Staff' 
+                    : 'Verified BITM Student'}
+                </span>
               </span>
             </div>
           </div>

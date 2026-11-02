@@ -253,3 +253,129 @@ exports.getRideRequests = async (req, res) => {
     res.status(500).json({ message: 'Error retrieving ride requests', error: err.message });
   }
 };
+
+// 11. Get All Approved College Students
+exports.getApprovedStudents = async (req, res) => {
+  try {
+    const ApprovedStudent = require('../models/ApprovedStudent');
+    const students = await ApprovedStudent.find()
+      .populate('registeredUserId', 'name usn email phone createdAt')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      total: students.length,
+      registeredCount: students.filter(s => s.isRegistered).length,
+      students
+    });
+  } catch (err) {
+    console.error('Admin getApprovedStudents error:', err);
+    res.status(500).json({ message: 'Error retrieving approved students', error: err.message });
+  }
+};
+
+// 12. Add New Approved Student Phone Number (Single or Bulk)
+exports.addApprovedStudent = async (req, res) => {
+  try {
+    const ApprovedStudent = require('../models/ApprovedStudent');
+    const { phoneNumber, phoneNumbers, name, usn, department, college } = req.body;
+
+    // Handle Bulk Addition if phoneNumbers array or multi-line string is passed
+    if (phoneNumbers) {
+      let rawList = [];
+      if (Array.isArray(phoneNumbers)) {
+        rawList = phoneNumbers;
+      } else if (typeof phoneNumbers === 'string') {
+        rawList = phoneNumbers.split(/[\r\n,;]+/).map(s => s.trim()).filter(Boolean);
+      }
+
+      let added = 0;
+      let skipped = 0;
+
+      for (const raw of rawList) {
+        let clean = raw.replace(/[^0-9]/g, '');
+        if (clean.startsWith('91') && clean.length === 12) clean = clean.slice(2);
+        if (clean.startsWith('0') && clean.length === 11) clean = clean.slice(1);
+        if (clean.length === 10) {
+          const exists = await ApprovedStudent.findOne({ phoneNumber: clean });
+          if (!exists) {
+            await ApprovedStudent.create({
+              phoneNumber: clean,
+              name: '',
+              usn: '',
+              college: college || 'Ballari Institute of Technology and Management',
+              department: department || 'AIML',
+              registrationStatus: 'not_registered',
+              isRegistered: false
+            });
+            added++;
+          } else {
+            skipped++;
+          }
+        }
+      }
+
+      return res.status(201).json({
+        message: `Bulk import complete: ${added} phone number(s) added, ${skipped} already existed.`,
+        added,
+        skipped
+      });
+    }
+
+    // Handle Single Phone Number Addition
+    if (!phoneNumber) {
+      return res.status(400).json({ message: 'Student mobile number is required' });
+    }
+
+    let cleanPhone = phoneNumber.toString().replace(/[^0-9]/g, '');
+    if (cleanPhone.startsWith('91') && cleanPhone.length === 12) cleanPhone = cleanPhone.slice(2);
+    if (cleanPhone.startsWith('0') && cleanPhone.length === 11) cleanPhone = cleanPhone.slice(1);
+
+    if (cleanPhone.length < 10) {
+      return res.status(400).json({ message: 'Please enter a valid 10-digit mobile number' });
+    }
+
+    const existing = await ApprovedStudent.findOne({ phoneNumber: cleanPhone });
+    if (existing) {
+      return res.status(400).json({ message: `Mobile number ${cleanPhone} is already in the approved list.` });
+    }
+
+    const newStudent = await ApprovedStudent.create({
+      phoneNumber: cleanPhone,
+      name: (name || '').trim(),
+      usn: (usn || '').toUpperCase().trim(),
+      college: college || 'Ballari Institute of Technology and Management',
+      department: department || 'AIML',
+      registrationStatus: 'not_registered',
+      isRegistered: false
+    });
+
+    res.status(201).json({
+      message: `Mobile number ${cleanPhone} added to approved database successfully`,
+      student: newStudent
+    });
+  } catch (err) {
+    console.error('Admin addApprovedStudent error:', err);
+    res.status(500).json({ message: 'Error adding approved student phone number', error: err.message });
+  }
+};
+
+// 13. Delete Approved Student Phone Number
+exports.deleteApprovedStudent = async (req, res) => {
+  try {
+    const ApprovedStudent = require('../models/ApprovedStudent');
+    const { id } = req.params;
+
+    const removed = await ApprovedStudent.findByIdAndDelete(id);
+    if (!removed) {
+      return res.status(404).json({ message: 'Phone number record not found' });
+    }
+
+    res.status(200).json({
+      message: `Mobile number ${removed.phoneNumber} removed from authorized list`,
+      removed
+    });
+  } catch (err) {
+    console.error('Admin deleteApprovedStudent error:', err);
+    res.status(500).json({ message: 'Error removing phone number', error: err.message });
+  }
+};

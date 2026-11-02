@@ -1,8 +1,8 @@
 const mongoose = require('mongoose');
 
 const otpSchema = new mongoose.Schema({
-  email: { type: String, required: true },
-  otp: { type: String, required: true }, // Not hashed for MVP simplicity, should be hashed in prod
+  email: { type: String, required: true, lowercase: true, trim: true },
+  otp: { type: String, required: true, trim: true },
   expiresAt: { type: Date, required: true }
 });
 

@@ -1,257 +1,216 @@
-import React, { useState, useRef, useEffect, useContext } from 'react';
-import { useJsApiLoader, Autocomplete } from '@react-google-maps/api';
+import React, { useState, useEffect, useContext } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
+import { Bike, Clock, ShieldCheck, Lock, Sparkles, Navigation, ArrowRight, CheckCircle2, AlertCircle, Fuel, AlertTriangle } from 'lucide-react';
 import MapComponent from '../components/MapComponent';
 import { AuthContext } from '../context/AuthContext';
+import { format12Hour, formatTimeString12h } from '../utils/timeFormat';
 
-const LIBRARIES = ['places'];
-
-// Popular campus pickup spots in Ballari for 1-click selection
-const QUICK_SPOTS = [
-  'KHB Colony, Ballari',
-  'Ballari Main Bus Stand',
-  'Cantonment, Ballari',
-  'Gandhi Nagar, Ballari',
-  'Sudha Cross, Ballari'
-];
-
-const BITM_COORDS = { lat: 15.1677, lng: 76.8506 };
-
-const SPOT_COORDS = {
-  'KHB Colony, Ballari': { lat: 15.1480, lng: 76.9280 },
-  'Ballari Main Bus Stand': { lat: 15.1450, lng: 76.9250 },
-  'Cantonment, Ballari': { lat: 15.1320, lng: 76.9150 },
-  'Gandhi Nagar, Ballari': { lat: 15.1420, lng: 76.9310 },
-  'Sudha Cross, Ballari': { lat: 15.1400, lng: 76.9180 }
-};
-
-const calculateHaversineKm = (lat1, lon1, lat2, lon2) => {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return parseFloat((R * c * 1.25).toFixed(1));
-};
+const COMMUTE_STORAGE_KEY = 'bikemate_today_commute';
+const VEHICLE_STORAGE_KEY = 'bikemate_driver_vehicle';
 
 function OfferRide() {
   const { user } = useContext(AuthContext);
   const collegeAddress = user?.college || 'Ballari Institute of Technology and Management, Ballari';
+  const navigate = useNavigate();
 
-  const [direction, setDirection] = useState('TO_COLLEGE'); // 'TO_COLLEGE' | 'FROM_COLLEGE'
-  const [originText, setOriginText] = useState('');
-  const [destText, setDestText] = useState(collegeAddress);
-  const [userCoords, setUserCoords] = useState(null);
-  const [detectingLocation, setDetectingLocation] = useState(false);
-  const [locationStatus, setLocationStatus] = useState('');
-  const [time, setTime] = useState(() => {
+  // Route inherited from Dashboard
+  const [commuteRoute, setCommuteRoute] = useState(() => {
+    try {
+      const saved = localStorage.getItem(COMMUTE_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && Array.isArray(parsed.originCoords) && Array.isArray(parsed.destCoords)) {
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    return {
+      mode: 'TO_COLLEGE',
+      originText: 'KHB Colony, Ballari',
+      originCoords: [76.9214, 15.1394],
+      destText: 'Ballari Institute of Technology and Management, Ballari',
+      destCoords: [76.8506, 15.1677],
+      distanceKm: 8.5
+    };
+  });
+
+  // Driver Vehicle Details (Synced from Settings & User DB profile)
+  const [bikeName, setBikeName] = useState(() => {
+    if (user?.bikeName) return user.bikeName;
+    try {
+      const savedV = localStorage.getItem(VEHICLE_STORAGE_KEY);
+      if (savedV) {
+        const parsed = JSON.parse(savedV);
+        if (parsed.bikeName) return parsed.bikeName;
+      }
+    } catch (e) {}
+    return 'Royal Enfield Hunter 350';
+  });
+
+  const [bikeNumber, setBikeNumber] = useState(() => {
+    if (user?.bikeNumber) return user.bikeNumber;
+    try {
+      const savedV = localStorage.getItem(VEHICLE_STORAGE_KEY);
+      if (savedV) {
+        const parsed = JSON.parse(savedV);
+        if (parsed.bikeNumber) return parsed.bikeNumber;
+      }
+    } catch (e) {}
+    return 'KA-34-EA-4412';
+  });
+
+  // Automatically update when user profile updates in Settings
+  useEffect(() => {
+    if (user?.bikeName) setBikeName(user.bikeName);
+    if (user?.bikeNumber) setBikeNumber(user.bikeNumber);
+  }, [user?.bikeName, user?.bikeNumber]);
+
+  // Departure Time (defaults to +30 minutes)
+  const [departureTime, setDepartureTime] = useState(() => {
     const d = new Date(Date.now() + 30 * 60000);
     return d.toTimeString().slice(0, 5);
   });
-  const [seats, setSeats] = useState(1);
-  const [distanceKm, setDistanceKm] = useState(8.5);
-  const [price, setPrice] = useState(17); // 8.5 km * 2 = 17
-  const RATE_PER_KM = 2.0; // ₹2/KM
+
+  // Available Seats: ALWAYS LOCKED TO 1
+  const seatsAvailable = 1;
+
+  // Fair-Share Calculation
+  const distanceKm = commuteRoute.distanceKm || 8.5;
+  const RATE_PER_KM = 2.0; // ₹2/KM campus fuel-share rate
+  const fairSharePrice = Math.max(10, Math.round(distanceKm * RATE_PER_KM));
+
+  // Driver GPS coordinates for blue circle icon
+  const [userCoords, setUserCoords] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [activeRide, setActiveRide] = useState(null);
+  const [checkingActive, setCheckingActive] = useState(true);
 
-  const originRef = useRef();
-  const destRef = useRef();
-  const autocompleteRef = useRef(null);
-  const navigate = useNavigate();
-
-  const { isLoaded } = useJsApiLoader({
-    id: 'google-map-script',
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
-    libraries: LIBRARIES,
-  });
-
-  const recalculatePrice = (coords) => {
-    const lat = coords?.lat || 15.1480;
-    const lng = coords?.lng || 76.9280;
-    const dist = calculateHaversineKm(lat, lng, BITM_COORDS.lat, BITM_COORDS.lng);
-    setDistanceKm(dist);
-    const fairPrice = Math.max(10, Math.round(dist * RATE_PER_KM));
-    setPrice(fairPrice);
-  };
-
-  // Automatically detect user's current GPS location
-  const detectMyLocation = () => {
-    if (!navigator.geolocation) {
-      setLocationStatus('GPS not supported by your browser');
-      return;
+  // Check if driver already has an active scheduled ride
+  const fetchActiveRideStatus = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const authConfig = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+      const res = await axios.get('http://localhost:5000/api/rides/active-status', authConfig);
+      if (res.data?.hasActiveOfferedRide) {
+        setActiveRide(res.data.activeOfferedRide);
+      } else {
+        setActiveRide(null);
+      }
+    } catch (err) {
+      console.warn('Active ride check error:', err.message);
+    } finally {
+      setCheckingActive(false);
     }
-
-    setDetectingLocation(true);
-    setLocationStatus('📡 Acquiring GPS position...');
-
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setUserCoords(coords);
-        recalculatePrice(coords);
-
-        // 1. Immediately set originText so the form is populated with the locked coordinates
-        const immediateLabel = `My Location (${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)})`;
-        if (direction === 'TO_COLLEGE') {
-          setOriginText(immediateLabel);
-          if (originRef.current) originRef.current.value = immediateLabel;
-        } else {
-          setDestText(immediateLabel);
-          if (destRef.current) destRef.current.value = immediateLabel;
-        }
-        setLocationStatus(`📍 GPS Locked: ${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`);
-        setDetectingLocation(false);
-
-        // 2. Try reverse geocoding asynchronously using standard callback
-        try {
-          if (window.google?.maps?.Geocoder) {
-            const geocoder = new window.google.maps.Geocoder();
-            geocoder.geocode({ location: coords }, (results, status) => {
-              if (status === 'OK' && results && results[0]) {
-                const fullAddr = results[0].formatted_address;
-                if (direction === 'TO_COLLEGE') {
-                  setOriginText(fullAddr);
-                  if (originRef.current) originRef.current.value = fullAddr;
-                } else {
-                  setDestText(fullAddr);
-                  if (destRef.current) destRef.current.value = fullAddr;
-                }
-                setLocationStatus(`📍 Detected: ${results[0].address_components?.[1]?.long_name || fullAddr.slice(0, 30)}`);
-              }
-            });
-          }
-        } catch (err) {
-          console.warn('Reverse geocode error:', err.message);
-        }
-      },
-      (err) => {
-        console.warn('GPS Error:', err.message);
-        setDetectingLocation(false);
-        setLocationStatus('⚠️ GPS inactive. Tap a quick spot below.');
-        // Set Ballari default coordinates so map still works
-        setUserCoords({ lat: 15.1394, lng: 76.9214 });
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
   };
 
   useEffect(() => {
-    if (isLoaded) {
-      detectMyLocation();
-    }
-  }, [isLoaded]);
+    fetchActiveRideStatus();
+  }, []);
 
-  // Handle switching direction between Going to College and Returning Home
-  const handleDirectionSwitch = (newDir) => {
-    setDirection(newDir);
-    setError('');
-    if (newDir === 'TO_COLLEGE') {
-      setDestText(collegeAddress);
-      if (originRef.current && originText) {
-        originRef.current.value = originText;
-      }
-    } else {
-      setOriginText(collegeAddress);
-      if (originRef.current) {
-        originRef.current.value = collegeAddress;
-      }
+  // Cancel existing ride so driver can republish
+  const handleCancelExistingRide = async () => {
+    if (!activeRide) return;
+    if (!window.confirm('Cancel your currently scheduled ride? Any booked commuter will be notified and your schedule unlocked.')) return;
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const authConfig = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+      await axios.patch(`http://localhost:5000/api/rides/${activeRide._id}/cancel`, {}, authConfig);
+      setActiveRide(null);
+      setSuccess('Previous scheduled ride cancelled. You can now publish your new commute!');
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to cancel existing ride.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleSpotSelect = (spot) => {
-    setError('');
-    if (direction === 'TO_COLLEGE') {
-      setOriginText(spot);
-      if (originRef.current) originRef.current.value = spot;
-    } else {
-      setDestText(spot);
-      if (destRef.current) destRef.current.value = spot;
+  // Detect Driver GPS location for blue circle pulse icon
+  useEffect(() => {
+    const oCoords = commuteRoute?.originCoords || [76.9214, 15.1394];
+    if (!navigator.geolocation) {
+      setUserCoords({ lat: oCoords[1], lng: oCoords[0] });
+      return;
     }
-    if (SPOT_COORDS[spot]) {
-      recalculatePrice(SPOT_COORDS[spot]);
-    }
-    setLocationStatus(`📍 Selected: ${spot}`);
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      },
+      (err) => {
+        console.warn('GPS Error, using route origin:', err.message);
+        setUserCoords({ lat: oCoords[1], lng: oCoords[0] });
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  }, [commuteRoute]);
+
+  // Persist vehicle details when modified
+  const handleBikeChange = (name, num) => {
+    setBikeName(name);
+    setBikeNumber(num);
+    localStorage.setItem(VEHICLE_STORAGE_KEY, JSON.stringify({ bikeName: name, bikeNumber: num }));
   };
 
-  const submitRide = async () => {
+  const handlePublishRide = async (e) => {
+    e.preventDefault();
     setError('');
+    setSuccess('');
 
-    // Determine final origin and destination values with automatic fallbacks
-    let finalOrigin = (direction === 'TO_COLLEGE'
-      ? (originText || originRef.current?.value || '')
-      : collegeAddress).trim();
-
-    let finalDest = (direction === 'TO_COLLEGE'
-      ? collegeAddress
-      : (destText || destRef.current?.value || '')).trim();
-
-    // Auto-resolve if empty
-    if (!finalOrigin) {
-      if (userCoords) {
-        finalOrigin = `My Location (${userCoords.lat.toFixed(4)}, ${userCoords.lng.toFixed(4)})`;
-      } else {
-        finalOrigin = QUICK_SPOTS[0];
-      }
-      setOriginText(finalOrigin);
-    }
-
-    if (!finalDest) {
-      finalDest = collegeAddress;
-      setDestText(finalDest);
+    if (!bikeName.trim() || !bikeNumber.trim()) {
+      setError('Please provide your motorcycle name and registration number.');
+      return;
     }
 
     setLoading(true);
-
     try {
-      // Use exact GPS coordinates if available, otherwise default to Ballari
-      let oCoords = userCoords ? [userCoords.lng, userCoords.lat] : [76.9214, 15.1394];
-      let dCoords = [76.8837, 15.1278]; // BITM campus coords
+      const [hours, minutes] = departureTime.split(':');
+      const depDate = new Date();
+      depDate.setHours(parseInt(hours, 10));
+      depDate.setMinutes(parseInt(minutes, 10));
+      depDate.setSeconds(0);
 
-      // Try geocoding destination address if custom
-      if (window.google?.maps?.Geocoder && finalDest !== collegeAddress) {
-        try {
-          const geocoder = new window.google.maps.Geocoder();
-          geocoder.geocode({ address: finalDest }, (res, status) => {
-            if (status === 'OK' && res?.[0]?.geometry?.location) {
-              dCoords = [res[0].geometry.location.lng(), res[0].geometry.location.lat()];
-            }
-          });
-        } catch (e) {}
-      }
-
-      const departureDate = new Date();
-      if (time) {
-        const [h, m] = time.split(':');
-        departureDate.setHours(parseInt(h), parseInt(m), 0);
-      } else {
-        departureDate.setMinutes(departureDate.getMinutes() + 30);
+      // If departure time selected is earlier than right now, set it for tomorrow
+      if (depDate.getTime() < Date.now()) {
+        depDate.setDate(depDate.getDate() + 1);
       }
 
       const payload = {
-        originCoords: oCoords,
-        destCoords: dCoords,
-        originAddress: finalOrigin,
-        destAddress: finalDest,
-        departureTime: departureDate,
-        seatsAvailable: parseInt(seats) || 1,
-        distanceKm: parseFloat(distanceKm),
-        ratePerKm: RATE_PER_KM,
-        pricePerSeat: parseInt(price) || 50,
+        originCoords: commuteRoute.originCoords || [76.9214, 15.1394],
+        destCoords: commuteRoute.destCoords || [76.8506, 15.1677],
+        originAddress: commuteRoute.originText,
+        destAddress: commuteRoute.destText,
+        departureTime: depDate.toISOString(),
+        seatsAvailable: 1, // ALWAYS 1 seat
+        pricePerSeat: fairSharePrice,
+        distanceKm,
+        bikeName: bikeName.trim(),
+        bikeNumber: bikeNumber.trim().toUpperCase(),
+        cancelPrevious: !!activeRide
       };
 
-      await axios.post('http://localhost:5000/api/rides', payload);
+      const token = localStorage.getItem('token');
+      const authConfig = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
 
-      setSuccess('🎉 Ride successfully published for campus!');
-      setTimeout(() => navigate('/rides'), 1200);
+      const res = await axios.post('http://localhost:5000/api/rides', payload, authConfig);
+
+      const formatted12h = formatTimeString12h(departureTime);
+      setSuccess(`🎉 Ride successfully published for ${formatted12h}! Available to same-direction students.`);
+      setTimeout(() => {
+        navigate('/rides');
+      }, 1200);
     } catch (err) {
       console.error(err);
-      setError(err.response?.data?.error || err.response?.data?.message || 'Failed to publish ride. Please try again.');
+      if (err.response?.status === 409 && err.response?.data?.hasActiveRide) {
+        setActiveRide(err.response.data.activeRide);
+        setError('You already have an active scheduled ride. Use "Cancel Old Ride & Publish New" above if you wish to reschedule.');
+      } else {
+        setError(err.response?.data?.message || 'Error publishing shared ride. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -259,319 +218,325 @@ function OfferRide() {
 
   return (
     <div className="space-y-6 pt-1">
-      <div>
-        <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
+      
+      {/* 1. Header with Inherited Commute Route Banner */}
+      <div className="bg-white rounded-[24px] border border-gray-100 p-5 shadow-xs">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Offer a Ride</h2>
-            <p className="text-gray-500 text-sm mt-0.5">
-              Fixed College: <span className="text-[#00a86b] font-semibold">{collegeAddress}</span>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl sm:text-2xl font-black text-gray-900">Offer a Ride</h1>
+              <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 text-xs font-bold border border-blue-200">
+                Driver Commute Active
+              </span>
+            </div>
+            <p className="text-gray-500 text-xs sm:text-sm mt-1">
+              Zero location typing needed. Inherits today's route from your dashboard setup.
             </p>
           </div>
 
-          {/* Direction toggle pill */}
-          <div className="inline-flex bg-gray-100 p-1.5 rounded-2xl border border-gray-200">
-            <button
-              onClick={() => handleDirectionSwitch('TO_COLLEGE')}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition flex items-center gap-2 ${
-                direction === 'TO_COLLEGE'
-                  ? 'bg-[#00b87c] text-white shadow-xs'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <span>🏠 ➡️ 🏫</span>
-              <span>Going to College</span>
-            </button>
-            <button
-              onClick={() => handleDirectionSwitch('FROM_COLLEGE')}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition flex items-center gap-2 ${
-                direction === 'FROM_COLLEGE'
-                  ? 'bg-[#00b87c] text-white shadow-xs'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <span>🏫 ➡️ 🏡</span>
-              <span>Heading Home</span>
-            </button>
+          <Link
+            to="/home"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-xs font-bold text-gray-700 transition self-start lg:self-auto border border-gray-200/60"
+          >
+            <span>⚙️ Change Commute Route on Dashboard</span>
+          </Link>
+        </div>
+
+        {/* Route Details Bar */}
+        <div className="mt-4 p-4 rounded-2xl bg-gradient-to-r from-blue-50/80 via-indigo-50/40 to-teal-50/40 border border-blue-200/80 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-1.5 font-bold text-gray-900">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-ping" />
+              <span>📍 Starting Point:</span>
+              <span className="text-blue-700 bg-white px-2.5 py-1 rounded-lg border border-blue-200 shadow-2xs font-semibold">
+                {commuteRoute.originText}
+              </span>
+            </div>
+
+            <span className="text-gray-400 font-bold">➔</span>
+
+            <div className="flex items-center gap-1.5 font-bold text-gray-900">
+              <span>🏁 Destination:</span>
+              <span className="text-emerald-700 bg-white px-2.5 py-1 rounded-lg border border-emerald-200 shadow-2xs font-semibold">
+                {commuteRoute.destText}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="text-gray-600 font-medium">
+              Distance: <strong className="text-gray-900">{distanceKm} km</strong>
+            </span>
+            <span className="text-gray-600 font-medium">
+              Fare: <strong className="text-[#00a86b]">₹{fairSharePrice}</strong> (@ ₹2/km)
+            </span>
           </div>
         </div>
+      </div>
+
+      {/* 2. Gender Safety Banner */}
+      {user?.gender === 'female' ? (
+        <div className="p-3.5 rounded-2xl bg-pink-50/90 border border-pink-200 text-pink-900 text-xs sm:text-sm flex items-center justify-between shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <span className="text-2xl">🌸</span>
+            <div>
+              <span className="font-bold block text-pink-950">Ladies-Only Safe Ride</span>
+              <span className="text-pink-700 text-xs">This ride will only be visible to and requestable by female college students.</span>
+            </div>
+          </div>
+          <span className="px-3 py-1 rounded-full bg-pink-200/60 text-pink-800 text-xs font-bold border border-pink-300">
+            👩 Girls ↔ Girls
+          </span>
+        </div>
+      ) : (
+        <div className="p-3.5 rounded-2xl bg-blue-50/90 border border-blue-200 text-blue-900 text-xs sm:text-sm flex items-center justify-between shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <span className="text-2xl">🛡️</span>
+            <div>
+              <span className="font-bold block text-blue-950">Gents-Only Safe Ride</span>
+              <span className="text-blue-700 text-xs">This ride will only be visible to and requestable by male college students.</span>
+            </div>
+          </div>
+          <span className="px-3 py-1 rounded-full bg-blue-200/60 text-blue-800 text-xs font-bold border border-blue-300">
+            👨 Boys ↔ Boys
+          </span>
+        </div>
+      )}
+
+      {/* Active Scheduled Ride Alert Banner (Single Active Ride Enforcement) */}
+      {activeRide && (
+        <div className="p-4 sm:p-5 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-900 shadow-xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <span className="text-2xl mt-0.5">⚠️</span>
+              <div>
+                <h3 className="font-extrabold text-sm sm:text-base text-amber-950">
+                  You Already Have an Active Scheduled Ride!
+                </h3>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  <strong>{activeRide.originAddress} ➔ {activeRide.destAddress}</strong>
+                </p>
+                <p className="text-xs text-amber-700 mt-1 flex items-center gap-2">
+                  <span>⏰ Departure: <strong>{format12Hour(activeRide.departureTime)}</strong></span>
+                  <span>•</span>
+                  <span className="uppercase font-bold text-[10px] bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-full">
+                    {activeRide.status}
+                  </span>
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap self-end sm:self-auto">
+              <Link
+                to="/rides"
+                className="px-4 py-2 rounded-xl bg-white border border-amber-300 text-amber-900 text-xs font-bold hover:bg-amber-100/60 transition shadow-2xs"
+              >
+                View in My Rides
+              </Link>
+              <button
+                type="button"
+                onClick={handleCancelExistingRide}
+                disabled={loading}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+              >
+                Cancel Old Ride & Publish New
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success / Error Messages */}
+      {success && (
+        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm flex items-center gap-2 shadow-xs">
+          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+          <span>{success}</span>
+        </div>
+      )}
+      {error && (
+        <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-800 text-sm flex items-center gap-2 shadow-xs">
+          <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* 3. Main Grid: Left Form | Right Map with Blue Marker */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         
-        {/* Gender Isolation Driver Guarantee Banner */}
-        {user?.gender === 'female' ? (
-          <div className="mb-5 p-3.5 rounded-2xl bg-pink-50/90 border border-pink-200 text-pink-900 text-xs sm:text-sm flex items-center justify-between shadow-xs">
-            <div className="flex items-center gap-2.5">
-              <span className="text-2xl">🌸</span>
-              <div>
-                <span className="font-bold block text-pink-950">Ladies-Only Commute Protection Active</span>
-                <span className="text-pink-700 text-xs">This ride will only be visible to and requestable by female students. Boys cannot request this ride.</span>
-              </div>
+        {/* Left Form (6 cols) */}
+        <div className="lg:col-span-6 space-y-5">
+          <div className="bg-white rounded-[24px] border border-gray-100 p-6 shadow-xs space-y-5">
+            
+            <div className="flex items-center gap-2 border-b border-gray-100 pb-3">
+              <Bike className="w-5 h-5 text-blue-600" />
+              <h2 className="text-base font-bold text-gray-900">Vehicle & Departure Setup</h2>
             </div>
-            <span className="hidden sm:inline-block px-3 py-1 rounded-full bg-pink-200/60 text-pink-800 text-xs font-bold border border-pink-300">
-              👩 Girls Ride With Girls
-            </span>
-          </div>
-        ) : (
-          <div className="mb-5 p-3.5 rounded-2xl bg-blue-50/90 border border-blue-200 text-blue-900 text-xs sm:text-sm flex items-center justify-between shadow-xs">
-            <div className="flex items-center gap-2.5">
-              <span className="text-2xl">🛡️</span>
-              <div>
-                <span className="font-bold block text-blue-950">Gents-Only Commute Protection Active</span>
-                <span className="text-blue-700 text-xs">This ride will only be visible to and requestable by male students. Girls cannot request this ride.</span>
-              </div>
-            </div>
-            <span className="hidden sm:inline-block px-3 py-1 rounded-full bg-blue-200/60 text-blue-800 text-xs font-bold border border-blue-300">
-              👨 Boys Ride With Boys
-            </span>
-          </div>
-        )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-          {/* Form */}
-          <div className="bg-white border border-gray-100 rounded-[24px] p-6 shadow-xs">
-            {error && (
-              <div className="mb-5 p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm flex items-center gap-2">
-                <span>⚠️</span>
-                <span>{error}</span>
-              </div>
-            )}
-            {success && (
-              <div className="mb-5 p-3.5 rounded-xl bg-[#e1f7ec] border border-[#98e6c4] text-[#00a86b] text-sm flex items-center gap-2">
-                <span>✅</span>
-                <span>{success}</span>
-              </div>
-            )}
-
-            {isLoaded ? (
-              <div className="space-y-5">
-                <div className="grid grid-cols-1 gap-4">
-                  {/* Starting Point */}
-                  <div>
-                    <div className="flex justify-between items-center mb-1.5">
-                      <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
-                        {direction === 'TO_COLLEGE' ? '📍 My Starting Location' : '🏫 College Campus (Starting Point)'}
-                      </label>
-                      {direction === 'TO_COLLEGE' && (
-                        <button
-                          type="button"
-                          onClick={detectMyLocation}
-                          disabled={detectingLocation}
-                          className="text-xs text-[#00a86b] hover:text-[#008e60] font-semibold flex items-center gap-1 transition"
-                        >
-                          <span className={detectingLocation ? 'animate-spin' : ''}>🎯</span>
-                          {detectingLocation ? 'Locating...' : 'Use Current GPS'}
-                        </button>
-                      )}
-                    </div>
-                    {direction === 'TO_COLLEGE' ? (
-                      <Autocomplete
-                        onLoad={(auto) => { autocompleteRef.current = auto; }}
-                        onPlaceChanged={() => {
-                          const place = autocompleteRef.current?.getPlace();
-                          if (place?.formatted_address) {
-                            setOriginText(place.formatted_address);
-                          } else if (originRef.current?.value) {
-                            setOriginText(originRef.current.value);
-                          }
-                        }}
-                      >
-                        <input
-                          ref={originRef}
-                          value={originText}
-                          onChange={(e) => setOriginText(e.target.value)}
-                          className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#00b87c] focus:bg-white focus:ring-1 focus:ring-[#00b87c] transition text-sm"
-                          placeholder="Detecting GPS or choose a spot below..."
-                        />
-                      </Autocomplete>
-                    ) : (
-                      <div className="relative">
-                        <input
-                          readOnly
-                          value={collegeAddress}
-                          className="w-full px-4 py-3 rounded-xl bg-[#eaf7f2] border border-[#daf1e8] text-[#00a86b] font-medium cursor-not-allowed text-sm"
-                        />
-                        <span className="absolute right-3 top-2.5 text-xs bg-[#e1f7ec] text-[#00a86b] px-2 py-1 rounded-md font-medium">Campus</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Destination */}
-                  <div>
-                    <div className="flex justify-between items-center mb-1.5">
-                      <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
-                        {direction === 'TO_COLLEGE' ? '🏫 College Destination (Fixed)' : '🏡 Drop-off Location'}
-                      </label>
-                      {direction === 'FROM_COLLEGE' && (
-                        <button
-                          type="button"
-                          onClick={detectMyLocation}
-                          disabled={detectingLocation}
-                          className="text-xs text-[#00a86b] hover:text-[#008e60] font-semibold flex items-center gap-1 transition"
-                        >
-                          <span className={detectingLocation ? 'animate-spin' : ''}>🎯</span>
-                          {detectingLocation ? 'Locating...' : 'Use Current GPS'}
-                        </button>
-                      )}
-                    </div>
-                    {direction === 'TO_COLLEGE' ? (
-                      <div className="relative">
-                        <input
-                          readOnly
-                          value={collegeAddress}
-                          className="w-full px-4 py-3 rounded-xl bg-[#eaf7f2] border border-[#daf1e8] text-[#00a86b] font-medium cursor-not-allowed text-sm"
-                        />
-                        <span className="absolute right-3 top-2.5 text-xs bg-[#e1f7ec] text-[#00a86b] px-2 py-1 rounded-md font-medium">Campus</span>
-                      </div>
-                    ) : (
-                      <Autocomplete
-                        onPlaceChanged={() => {
-                          if (destRef.current?.value) {
-                            setDestText(destRef.current.value);
-                          }
-                        }}
-                      >
-                        <input
-                          ref={destRef}
-                          value={destText}
-                          onChange={(e) => setDestText(e.target.value)}
-                          className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#00b87c] focus:bg-white focus:ring-1 focus:ring-[#00b87c] transition text-sm"
-                          placeholder="Where are you dropping off?"
-                        />
-                      </Autocomplete>
-                    )}
-                  </div>
-                </div>
-
-                {/* Quick campus spots */}
+            <form onSubmit={handlePublishRide} className="space-y-4">
+              
+              {/* Bike Name & Registration Number */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-medium text-gray-500 mb-2 block">⚡ Quick Campus Pickup Spots in Ballari:</label>
-                  <div className="flex flex-wrap gap-2">
-                    {QUICK_SPOTS.map((spot) => (
-                      <button
-                        key={spot}
-                        type="button"
-                        onClick={() => handleSpotSelect(spot)}
-                        className={`text-xs px-3 py-1.5 rounded-full border transition ${
-                          originText === spot
-                            ? 'bg-[#00b87c] text-white border-[#00b87c] font-semibold shadow-xs'
-                            : 'bg-gray-100 hover:bg-[#e1f7ec] hover:text-[#00a86b] border-transparent hover:border-[#98e6c4] text-gray-700'
-                        }`}
-                      >
-                        📍 {spot}
-                      </button>
-                    ))}
-                  </div>
+                  <label className="text-xs font-bold text-gray-700 block mb-1.5">
+                    🏍️ Bike / Scooter Model
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={bikeName}
+                    onChange={(e) => handleBikeChange(e.target.value, bikeNumber)}
+                    placeholder="e.g. Royal Enfield Hunter 350"
+                    className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-gray-900 text-sm font-semibold focus:outline-none focus:border-[#00b87c] focus:bg-white transition"
+                  />
                 </div>
 
-                {/* Location status badge */}
-                {locationStatus && (
-                  <div className="flex items-center gap-2 text-xs text-gray-600 bg-gray-50 p-2.5 rounded-xl border border-gray-100">
-                    <span>{locationStatus}</span>
-                  </div>
-                )}
+                <div>
+                  <label className="text-xs font-bold text-gray-700 block mb-1.5">
+                    🔢 Bike Registration Plate
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={bikeNumber}
+                    onChange={(e) => handleBikeChange(bikeName, e.target.value.toUpperCase())}
+                    placeholder="e.g. KA-34-EA-4412"
+                    className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-gray-900 font-mono text-sm uppercase font-bold focus:outline-none focus:border-[#00b87c] focus:bg-white transition"
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-gray-500 flex items-center gap-1 -mt-2">
+                <span className="text-[#00b87c] font-bold">✓</span>
+                <span>Auto-filled from your Settings profile. Changes here persist to future rides.</span>
+              </p>
 
-                <div className="grid grid-cols-2 gap-4 pt-2">
-                  <div>
-                    <label className="text-xs font-medium text-gray-700 mb-2 block">⏰ Departure Time</label>
-                    <input
-                      type="time"
-                      value={time}
-                      onChange={(e) => setTime(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-gray-900 focus:outline-none focus:border-[#00b87c] focus:bg-white focus:ring-1 focus:ring-[#00b87c] transition text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-gray-700 mb-2 block">🪑 Available Seats</label>
+              {/* Departure Time & Available Seats (LOCKED TO 1) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-gray-700 block mb-1.5 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-gray-500" />
+                      <span>Departure Time (Today)</span>
+                    </span>
+                    <span className="text-[11px] font-black text-blue-700 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200">
+                      ⏰ {formatTimeString12h(departureTime)}
+                    </span>
+                  </label>
+                  <input
+                    type="time"
+                    required
+                    value={departureTime}
+                    onChange={(e) => setDepartureTime(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-gray-900 text-sm font-bold focus:outline-none focus:border-[#00b87c] focus:bg-white transition"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-gray-700 block mb-1.5 flex items-center justify-between">
+                    <span>Available Seats</span>
+                    <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded">
+                      Locked to 1
+                    </span>
+                  </label>
+                  <div className="relative">
                     <input
                       type="number"
-                      min="1"
-                      max="3"
-                      value={seats}
-                      onChange={(e) => setSeats(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-gray-900 focus:outline-none focus:border-[#00b87c] focus:bg-white focus:ring-1 focus:ring-[#00b87c] transition text-sm"
+                      readOnly
+                      value={seatsAvailable}
+                      className="w-full px-4 py-3 rounded-xl bg-gray-100 border border-gray-200 text-gray-600 font-bold text-sm cursor-not-allowed"
                     />
+                    <div className="absolute right-3 top-3 flex items-center gap-1 text-xs text-gray-500 font-semibold">
+                      <Lock className="w-3.5 h-3.5 text-gray-400" />
+                      <span>1 Rider Always</span>
+                    </div>
                   </div>
                 </div>
-
-                {/* System Fair-Share Pricing Engine Card */}
-                <div className="bg-[#eaf7f2] rounded-2xl border border-[#daf1e8] p-4 shadow-xs space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">⚡</span>
-                      <span className="text-xs font-bold text-gray-900 uppercase tracking-wider">
-                        System Fair-Share Pricing Engine
-                      </span>
-                    </div>
-                    <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-[#e1f7ec] text-[#00a86b] border border-[#98e6c4]">
-                      ₹2.00 / KM (Cheap Fuel Share)
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 bg-white p-3 rounded-xl border border-gray-100 text-center">
-                    <div>
-                      <span className="text-[10px] text-gray-500 block mb-0.5">Est. Route</span>
-                      <span className="text-sm font-bold text-gray-900">{distanceKm} km</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-gray-500 block mb-0.5">Campus Rate</span>
-                      <span className="text-sm font-bold text-[#00b87c]">₹2.00 / km</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-gray-500 block mb-0.5">Auto-Calculated Fare</span>
-                      <span className="text-sm font-black text-[#00a86b]">₹{price} / seat</span>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-gray-600 pt-1 gap-1">
-                    <span className="flex items-center gap-1 text-[#00a86b]">
-                      <span>🛡️</span>
-                      <span>Based on distance to BITM Campus ({distanceKm} km × ₹2)</span>
-                    </span>
-                    <span className="text-emerald-700 font-semibold text-[11px]">
-                      Saves students ₹{Math.max(50, 100 - price)} vs Auto (₹100+)
-                    </span>
-                  </div>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-[#e1f7ec] border border-[#98e6c4] text-xs text-[#00a86b] flex items-center gap-2">
-                  <span>🛡️</span>
-                  <span>Your ride is only visible to verified students from your college community.</span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={submitRide}
-                  disabled={loading}
-                  className="w-full py-3.5 rounded-full font-semibold text-white bg-[#00b87c] hover:bg-[#00a36e] transition shadow-xs disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {loading ? (
-                    <>
-                      <span className="animate-spin">⏳</span>
-                      <span>Publishing Ride...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>🚀</span>
-                      <span>Publish Ride for Campus</span>
-                    </>
-                  )}
-                </button>
               </div>
-            ) : (
-              <div className="h-44 flex flex-col items-center justify-center text-gray-500 gap-2">
-                <div className="animate-spin text-2xl">🌍</div>
-                <span>Connecting to Google Maps & GPS...</span>
-              </div>
-            )}
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-4 rounded-full font-bold text-white bg-[#00b87c] hover:bg-[#00a36e] shadow-md transition disabled:opacity-60 flex items-center justify-center gap-2 mt-2"
+              >
+                {loading ? (
+                  <>
+                    <span className="animate-spin">⏳</span>
+                    <span>Publishing Shared Ride...</span>
+                  </>
+                ) : (
+                  <>
+                    <Bike className="w-5 h-5" />
+                    <span>Publish Shared Commute Ride ➔</span>
+                  </>
+                )}
+              </button>
+            </form>
           </div>
 
-          {/* Map */}
-          <div className="h-[550px] sticky top-8 rounded-[24px] overflow-hidden border border-gray-100 shadow-xs">
+          {/* 4. Details of System Fair-Share Pricing Engine Widget */}
+          <div className="bg-gradient-to-br from-[#f8fdfb] to-[#f0faf5] rounded-[24px] border border-[#98e6c4] p-6 shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-emerald-100 pb-3">
+              <div className="flex items-center gap-2">
+                <Fuel className="w-5 h-5 text-[#00a86b]" />
+                <h3 className="font-extrabold text-gray-900 text-sm">System Fair-Share Pricing Engine</h3>
+              </div>
+              <span className="text-xs font-bold text-[#00a86b] bg-[#e1f7ec] px-2.5 py-1 rounded-full border border-[#98e6c4]">
+                Transparent Formula
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-center">
+              <div className="p-3 bg-white rounded-xl border border-emerald-100">
+                <span className="text-[10px] text-gray-500 block uppercase font-bold">Commute Distance</span>
+                <strong className="text-base font-extrabold text-gray-900">{distanceKm} KM</strong>
+              </div>
+              <div className="p-3 bg-white rounded-xl border border-emerald-100">
+                <span className="text-[10px] text-gray-500 block uppercase font-bold">Fuel Split Fare</span>
+                <strong className="text-base font-black text-[#00a86b]">₹{fairSharePrice}</strong>
+              </div>
+            </div>
+
+            {/* Fair-Share Breakdown List */}
+            <div className="space-y-2 text-xs text-gray-600 bg-white/80 p-3.5 rounded-xl border border-emerald-100/80">
+              <div className="flex items-center justify-between">
+                <span>• Rate formula:</span>
+                <strong className="text-gray-900 font-mono">{distanceKm} km × ₹2.00/km = ₹{fairSharePrice}</strong>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>• Fuel coverage:</span>
+                <strong className="text-emerald-700">Covers ~40% of motorcycle petrol</strong>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>• Environmental impact:</span>
+                <strong className="text-emerald-700">~0.84 kg CO2 saved (1 less bike)</strong>
+              </div>
+              <div className="flex items-center justify-between pt-1 border-t border-gray-100">
+                <span>• Campus Auto fare:</span>
+                <span className="text-gray-500 line-through">₹100–120</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Map (6 cols) with Blue Circle Marker */}
+        <div className="lg:col-span-6 space-y-3 sticky top-6">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse" />
+              <span>Driver Live Map Position (🔵 Blue Circle Icon)</span>
+            </span>
+            <span className="text-[11px] text-[#00a86b] font-semibold">OSRM Planned Highway Route</span>
+          </div>
+
+          <div className="h-[520px] rounded-[24px] overflow-hidden border-2 border-gray-100 shadow-xs relative bg-gray-900">
             <MapComponent
-              origin={direction === 'TO_COLLEGE' ? originText : collegeAddress}
-              destination={direction === 'TO_COLLEGE' ? collegeAddress : destText}
+              origin={commuteRoute.originText}
+              destination={commuteRoute.destText}
               userCoords={userCoords}
+              userMarkerColor="#3b82f6" // 🔵 BLUE Circle Icon for Driver
             />
           </div>
         </div>
+
       </div>
     </div>
   );

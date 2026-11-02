@@ -15,6 +15,7 @@ import Notifications from './pages/Notifications';
 import Profile from './pages/Profile';
 import AdminPortal from './pages/AdminPortal';
 import LiveTracking from './pages/LiveTracking';
+import LiveShareTracking from './pages/LiveShareTracking';
 
 function DashboardRouteWrapper() {
   return (
@@ -28,11 +29,13 @@ function App() {
   return (
     <Router>
       <Routes>
-        {/* Public Landing & Authentication Pages */}
+        {/* Public Landing, Authentication & Public Share Pages */}
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/admin-login" element={<AdminLogin />} />
+        <Route path="/track/live-share" element={<LiveShareTracking />} />
+        <Route path="/track/live-share/:rideId" element={<LiveShareTracking />} />
 
         {/* Protected Student Dashboard Shell - Requires Login */}
         <Route
@@ -45,6 +48,7 @@ function App() {
           <Route path="/dashboard" element={<Home />} />
           <Route path="/home" element={<Home />} />
           <Route path="/rides" element={<MyRides />} />
+          <Route path="/my-rides" element={<MyRides />} />
           <Route path="/messages" element={<Messages />} />
           <Route path="/notifications" element={<Notifications />} />
           <Route path="/profile" element={<Profile />} />
@@ -54,7 +58,7 @@ function App() {
           <Route path="/track/:rideId" element={<LiveTracking />} />
         </Route>
 
-        {/* Protected Admin Portal - Requires Admin Role */}
+        {/* Protected Dedicated Admin Portal - Separate from Rider Shell */}
         <Route
           path="/admin"
           element={
@@ -63,6 +67,9 @@ function App() {
             </ProtectedRoute>
           }
         />
+
+        {/* Catch-all redirect to Dashboard */}
+        <Route path="*" element={<Home />} />
       </Routes>
     </Router>
   );
