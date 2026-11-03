@@ -5,7 +5,6 @@ const AuditLog = require('../models/AuditLog');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
-const { sendVerificationOtpEmail, sendPasswordResetOtpEmail } = require('../services/emailService');
 const axios = require('axios');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -529,27 +528,52 @@ exports.sendOtp = async (req, res) => {
     console.log(`⏰ Expires In   : 5 Minutes (Strict @bitm.edu.in Domain)`);
     console.log('======================================================\n');
 
-    // Send OTP via dedicated pooled email service (preserves user casing)
-    const sendResult = await sendVerificationOtpEmail({
-      email: cleanEmail,
-      otp,
-      name: req.body.name || ''
-    });
+    // Send OTP directly via Gmail SMTP (fresh connection, clean headers, no pooling)
+    if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+      try {
+        const cleanPassword = process.env.GMAIL_APP_PASSWORD.replace(/\s+/g, '');
+        const transporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: {
+            user: process.env.GMAIL_USER.trim(),
+            pass: cleanPassword,
+          },
+        });
 
-    if (sendResult.success) {
-      return res.status(200).json({
-        message: `A 6-digit verification code has been sent to ${cleanEmail} (valid for 5 minutes). Note: Please check your Inbox, "Other" tab, and Junk/Spam folder.`,
-        emailSent: true,
-        messageId: sendResult.messageId,
-        otpCode: otp
-      });
+        const info = await transporter.sendMail({
+          from: `"BikeMate 🏍️" <${process.env.GMAIL_USER.trim()}>`,
+          to: cleanEmail,
+          subject: 'Your BikeMate Verification OTP',
+          html: `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; background: #0a0a0f; color: #e2e8f0; border-radius: 16px; padding: 40px; border: 1px solid #222235;">
+              <h2 style="color: #00b87c; margin-bottom: 8px; font-weight: 800;">BikeMate 🏍️</h2>
+              <p style="color: #9ca3af; margin-bottom: 24px; font-size: 14px;">Verify your college email to complete registration.</p>
+              <div style="background: #1a1a28; border: 1px solid rgba(0, 184, 124, 0.3); border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
+                <p style="margin: 0 0 8px; color: #9ca3af; font-size: 13px; text-transform: uppercase; letter-spacing: 1px;">Your Verification OTP</p>
+                <p style="margin: 0; font-size: 40px; font-weight: 800; letter-spacing: 12px; color: #ffffff;">${otp}</p>
+              </div>
+              <p style="color: #9ca3af; font-size: 13px; line-height: 1.5;">This OTP is valid for <strong style="color:#00b87c">5 minutes</strong> only. Do not share it with anyone.</p>
+              <p style="color: #64748b; font-size: 12px; margin-top: 24px; border-top: 1px solid #222235; padding-top: 16px;">— The BikeMate Team<br>Ballari Institute of Technology and Management (BITM)</p>
+            </div>
+          `
+        });
+
+        console.log(`✅ [EMAIL DISPATCHED] OTP sent to: ${cleanEmail} | Message ID: ${info.messageId}`);
+        return res.status(200).json({
+          message: `A 6-digit verification code has been sent to ${cleanEmail} (valid for 5 minutes). Please check your email inbox.`,
+          emailSent: true
+        });
+      } catch (mailErr) {
+        console.error(`❌ [EMAIL DISPATCH FAILED] Error sending to ${cleanEmail}:`, mailErr.message);
+        return res.status(500).json({
+          message: `Could not send verification email to ${cleanEmail}. Please check that your email address is correct and try again.`,
+          error: mailErr.message
+        });
+      }
     } else {
-      console.warn(`⚠️ [SMTP DELIVERY NOTICE] Email dispatch to ${cleanEmail} failed:`, sendResult.error);
-      return res.status(200).json({
-        message: `Verification code generated for ${cleanEmail} (valid for 5 minutes). (Delivery notice: ${sendResult.error || 'Server SMTP warning'}).`,
-        emailSent: false,
-        warning: sendResult.error,
-        otpCode: otp
+      console.warn('⚠️ [SMTP WARNING] Gmail credentials not set.');
+      return res.status(500).json({
+        message: 'Email service is not configured on the server. Please contact administrator.'
       });
     }
   } catch (error) {
@@ -930,12 +954,42 @@ exports.forgotPasswordSendOtp = async (req, res) => {
     console.log(`⏰ Expires In   : 10 Minutes`);
     console.log('======================================================\n');
 
-    const sendResult = await sendPasswordResetOtpEmail({
-      email,
-      otp,
-      name: user.name
-    });
-    const emailSent = sendResult.success;
+    // Send OTP via direct Gmail SMTP transport
+    let emailSent = false;
+    if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
+      try {
+        const cleanPassword = process.env.GMAIL_APP_PASSWORD.replace(/\s+/g, '');
+        const transporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: {
+            user: process.env.GMAIL_USER.trim(),
+            pass: cleanPassword,
+          },
+        });
+
+        await transporter.sendMail({
+          from: `"BikeMate 🏍️" <${process.env.GMAIL_USER.trim()}>`,
+          to: email,
+          subject: 'Your BikeMate Password Reset OTP',
+          html: `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; background: #0a0a0f; color: #e2e8f0; border-radius: 16px; padding: 40px; border: 1px solid #222235;">
+              <h2 style="color: #00b87c; margin-bottom: 8px; font-weight: 800;">BikeMate 🏍️</h2>
+              <p style="color: #9ca3af; margin-bottom: 24px; font-size: 14px;">Reset your BikeMate account password.</p>
+              <div style="background: #1a1a28; border: 1px solid rgba(0, 184, 124, 0.3); border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
+                <p style="margin: 0 0 8px; color: #9ca3af; font-size: 13px; text-transform: uppercase; letter-spacing: 1px;">Your Reset OTP</p>
+                <p style="margin: 0; font-size: 40px; font-weight: 800; letter-spacing: 12px; color: #ffffff;">${otp}</p>
+              </div>
+              <p style="color: #9ca3af; font-size: 13px; line-height: 1.5;">This OTP is valid for <strong style="color:#00b87c">10 minutes</strong>. Do not share it with anyone.</p>
+              <p style="color: #64748b; font-size: 12px; margin-top: 24px; border-top: 1px solid #222235; padding-top: 16px;">— The BikeMate Team<br>Ballari Institute of Technology and Management (BITM)</p>
+            </div>
+          `
+        });
+        emailSent = true;
+        console.log(`✅ [PASSWORD RESET OTP] Successfully dispatched to: ${email}`);
+      } catch (err) {
+        console.error(`❌ [PASSWORD RESET OTP FAILED] Error sending to ${email}:`, err.message);
+      }
+    }
 
     const parts = email.split('@');
     const maskedUser = parts[0].length > 2 
@@ -946,10 +1000,9 @@ exports.forgotPasswordSendOtp = async (req, res) => {
     res.status(200).json({
       message: emailSent 
         ? `Reset OTP sent to your registered email (${maskedEmail})!` 
-        : `Reset OTP generated! Code: ${otp}`,
+        : `Verification OTP could not be sent to your email. Please try again.`,
       email: maskedEmail,
       phone: user.phone,
-      devOtp: otp,
       emailSent
     });
   } catch (error) {

@@ -68,8 +68,6 @@ function Register() {
   const [empChecking, setEmpChecking] = useState(false);
   const [empError, setEmpError] = useState('');
   const [otpCooldown, setOtpCooldown] = useState(0);
-  const [serverOtp, setServerOtp] = useState('');
-  const [showOtpHelper, setShowOtpHelper] = useState(false);
 
   useEffect(() => {
     let timer;
@@ -348,9 +346,7 @@ function Register() {
 
       // Clear the OTP entry field so user must manually type the code received in email
       setOtp('');
-      setServerOtp(res.data?.otpCode || '');
-      setShowOtpHelper(false);
-      setOtpCooldown(60); // 60s cooldown to prevent multiple clicks from invalidating codes
+      setOtpCooldown(15); // 15s cooldown to prevent accidental double clicks
       setSuccess(res.data.message || `Verification code sent to ${cleanEmail} (valid for 5 minutes)!`);
     }
     catch (err) { 
@@ -1122,33 +1118,6 @@ function Register() {
                     <p className="text-[11px] text-gray-400 mt-1 text-center">
                       Type the 6-digit code received on {formData.email || 'your @bitm.edu.in email'} (expires in 5 minutes)
                     </p>
-
-                    {/* Fallback OTP reveal if college firewall delays/quarantines email */}
-                    {serverOtp && (
-                      <div className="mt-2.5 text-center">
-                        <button
-                          type="button"
-                          onClick={() => setShowOtpHelper(!showOtpHelper)}
-                          className="text-xs text-[#00a86b] hover:text-[#008f5d] font-semibold inline-flex items-center gap-1.5 cursor-pointer underline underline-offset-2"
-                        >
-                          <span>{showOtpHelper ? '✕ Hide College Verification Code' : "🔑 Didn't receive email in Outlook? Click here to view code"}</span>
-                        </button>
-
-                        {showOtpHelper && (
-                          <div className="mt-2 p-3 bg-emerald-50/90 border border-emerald-200 rounded-xl text-center animate-fadeIn">
-                            <span className="block text-xs font-semibold text-emerald-950 mb-1">
-                              Your College Verification Code:
-                            </span>
-                            <div className="font-mono text-2xl font-black tracking-[0.25em] text-[#00b87c] bg-white py-1 px-4 rounded-lg border border-emerald-300 inline-block shadow-xs">
-                              {serverOtp}
-                            </div>
-                            <p className="text-[11px] text-emerald-800 mt-1.5 leading-relaxed">
-                              (BITM Microsoft 365 firewall may delay external emails. Please type the 6 digits above into the OTP field to continue.)
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
 
                   <button 
