@@ -317,6 +317,13 @@ function Register() {
 
       const cleanEmail = formData.email.trim().toLowerCase();
 
+      // Strict validation: must end with @bitm.edu.in
+      if (!cleanEmail.endsWith('@bitm.edu.in')) {
+        setError('Invalid college email ID. Only official college email addresses ending with @bitm.edu.in are allowed.');
+        setLoading(false);
+        return;
+      }
+
       const res = await axios.post(`${API}/register/send-otp`, { 
         email: cleanEmail,
         usn: formData.usn,
@@ -326,7 +333,7 @@ function Register() {
 
       // Clear the OTP entry field so user must manually type the code received in email
       setOtp('');
-      setSuccess(res.data.message || `Verification code sent to ${cleanEmail}! Please check your email inbox.`);
+      setSuccess(res.data.message || `Verification code sent to ${cleanEmail} (valid for 5 minutes)! Please check your email inbox.`);
     }
     catch (err) { 
       setError(err.response?.data?.message || 'Error generating or sending OTP. Please check your email address.'); 
@@ -342,6 +349,10 @@ function Register() {
 
     if (!cleanEmail) {
       setError('Email address is missing. Please enter your college email.');
+      return;
+    }
+    if (!cleanEmail.endsWith('@bitm.edu.in')) {
+      setError('Invalid college email ID. Only official college email addresses ending with @bitm.edu.in are allowed.');
       return;
     }
     if (!cleanOtp) {
@@ -972,20 +983,54 @@ function Register() {
                     />
                   </div>
 
-                  {/* Email */}
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                      {isFaculty ? 'College / Institutional Email' : 'College Email'}
-                    </label>
-                    <input 
-                      name="email" 
-                      type="email" 
-                      value={formData.email} 
-                      onChange={handle} 
-                      className="w-full px-4 py-2.5 rounded-xl bg-gray-50 border border-gray-200 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-[#00b87c] focus:bg-white focus:ring-1 focus:ring-[#00b87c] transition text-sm" 
-                      placeholder={isFaculty ? 'faculty@bitm.edu.in' : 'student@bitm.edu.in'} 
-                    />
-                  </div>
+                  {/* Email with Step 4 Real-time Domain Validation */}
+                  {(() => {
+                    const enteredEmail = (formData.email || '').trim().toLowerCase();
+                    const isBitmEmail = enteredEmail.endsWith('@bitm.edu.in');
+                    const hasOtherDomain = enteredEmail.includes('@') && !isBitmEmail;
+
+                    return (
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="block text-xs font-semibold text-gray-700">
+                            {isFaculty ? 'College / Institutional Email' : 'College Email'}
+                          </label>
+                          {isBitmEmail ? (
+                            <span className="text-[11px] text-[#00a86b] font-bold flex items-center gap-1 animate-fadeIn">
+                              <span>✓</span> Official @bitm.edu.in
+                            </span>
+                          ) : hasOtherDomain ? (
+                            <span className="text-[11px] text-red-600 font-semibold flex items-center gap-1 animate-fadeIn">
+                              <span>⚠️</span> Must end with @bitm.edu.in
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-gray-400 font-medium">
+                              Must end with @bitm.edu.in
+                            </span>
+                          )}
+                        </div>
+                        <input 
+                          name="email" 
+                          type="email" 
+                          value={formData.email} 
+                          onChange={handle} 
+                          className={`w-full px-4 py-2.5 rounded-xl bg-gray-50 border text-gray-900 placeholder-gray-400 focus:outline-none focus:bg-white focus:ring-1 transition text-sm ${
+                            isBitmEmail
+                              ? 'border-[#00b87c] focus:border-[#00b87c] focus:ring-[#00b87c] bg-emerald-50/20'
+                              : hasOtherDomain
+                              ? 'border-red-400 focus:border-red-500 focus:ring-red-200 bg-red-50/20'
+                              : 'border-gray-200 focus:border-[#00b87c] focus:ring-[#00b87c]'
+                          }`} 
+                          placeholder={isFaculty ? 'faculty@bitm.edu.in' : 'student@bitm.edu.in'} 
+                        />
+                        {hasOtherDomain && (
+                          <p className="text-[11px] text-red-600 mt-1.5 font-medium flex items-center gap-1">
+                            <span>🚫</span> Invalid college email ID. Only official college email addresses ending with <strong>@bitm.edu.in</strong> are allowed.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Ride Privilege Note for Faculty */}
                   {isFaculty && (
@@ -1006,13 +1051,15 @@ function Register() {
                     className="w-full py-2.5 rounded-xl font-semibold text-[#00a86b] border border-[#98e6c4] bg-[#e1f7ec] hover:bg-[#daf1e8] transition text-xs cursor-pointer flex items-center justify-center gap-1.5"
                   >
                     <span>📧</span>
-                    <span>{loading ? 'Sending code...' : 'Send Verification OTP to Email'}</span>
+                    <span>{loading ? 'Sending code...' : 'Send Verification OTP to Email (Valid for 5 mins)'}</span>
                   </button>
 
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="block text-xs font-semibold text-gray-700">Enter 6-Digit Email OTP</label>
-                      <span className="text-[11px] text-gray-400 font-medium">Sent to your college inbox</span>
+                      <span className="text-[11px] text-amber-700 font-bold bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                        ⏰ Valid for 5 minutes only
+                      </span>
                     </div>
                     <input 
                       type="text"
@@ -1032,7 +1079,7 @@ function Register() {
                       maxLength={6} 
                     />
                     <p className="text-[11px] text-gray-400 mt-1 text-center">
-                      Type the 6-digit code received on {formData.email || 'your email'}
+                      Type the 6-digit code received on {formData.email || 'your @bitm.edu.in email'} (expires in 5 minutes)
                     </p>
                   </div>
 

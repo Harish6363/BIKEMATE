@@ -491,15 +491,15 @@ exports.sendOtp = async (req, res) => {
       return res.status(400).json({ message: `Email ${trimmedEmail} is already registered. Please login instead.` });
     }
 
-    const isDev = process.env.NODE_ENV === 'development';
-    const validDomains = ['.edu', '.ac.in', 'bitm.edu.in', ...(isDev ? ['@gmail.com', '.com', '.org'] : [])];
-    const isValidEmail = trimmedEmail && validDomains.some(d => trimmedEmail.includes(d));
-    if (!isValidEmail) {
-      return res.status(400).json({ message: 'Please use your college or institutional email (e.g. @bitm.edu.in)' });
+    // Strict college domain verification: Must end with @bitm.edu.in
+    if (!trimmedEmail.endsWith('@bitm.edu.in')) {
+      return res.status(400).json({ 
+        message: 'Invalid college email ID. Only official college email addresses ending with @bitm.edu.in are allowed.' 
+      });
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes validity
 
     // Delete any existing OTP for this email (case-insensitive) before creating a new one
     await OtpVerification.deleteMany({
@@ -515,7 +515,7 @@ exports.sendOtp = async (req, res) => {
     console.log(`🔑 [BIKEMATE OTP CODE]`);
     console.log(`📧 Target Email : ${trimmedEmail}`);
     console.log(`🔢 OTP Code     : ${otp}`);
-    console.log(`⏰ Expires In   : 10 Minutes`);
+    console.log(`⏰ Expires In   : 5 Minutes (Strict @bitm.edu.in Domain)`);
     console.log('======================================================\n');
 
     // Attempt to send OTP via Gmail SMTP if credentials exist
@@ -536,16 +536,16 @@ exports.sendOtp = async (req, res) => {
         await transporter.sendMail({
           from: `"BikeMate 🏍️" <${process.env.GMAIL_USER}>`,
           to: trimmedEmail,
-          subject: 'Your BikeMate Verification OTP',
+          subject: 'Your BikeMate Verification OTP (Valid for 5 Minutes)',
           html: `
             <div style="font-family: Inter, sans-serif; max-width: 480px; margin: 0 auto; background: #0a0a0f; color: #e2e8f0; border-radius: 16px; padding: 40px; border: 1px solid #222235;">
               <h2 style="color: #4361ee; margin-bottom: 8px;">BikeMate 🏍️</h2>
-              <p style="color: #9ca3af; margin-bottom: 24px;">Verify your college email to complete registration.</p>
+              <p style="color: #9ca3af; margin-bottom: 24px;">Verify your BITM college email to complete registration.</p>
               <div style="background: #1a1a28; border: 1px solid #4361ee33; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
                 <p style="margin: 0 0 8px; color: #9ca3af; font-size: 14px;">Your OTP Code</p>
                 <p style="margin: 0; font-size: 40px; font-weight: 800; letter-spacing: 12px; color: #ffffff;">${otp}</p>
               </div>
-              <p style="color: #6b7280; font-size: 13px;">This OTP is valid for <strong style="color:#e2e8f0">10 minutes</strong>. Do not share it with anyone.</p>
+              <p style="color: #6b7280; font-size: 13px;">This OTP is valid for <strong style="color:#e2e8f0">5 minutes</strong> only. Do not share it with anyone.</p>
               <p style="color: #6b7280; font-size: 13px; margin-top: 24px;">— The BikeMate Team</p>
             </div>
           `
@@ -559,8 +559,8 @@ exports.sendOtp = async (req, res) => {
 
     res.status(200).json({
       message: emailSent 
-        ? `A 6-digit verification code has been sent to ${trimmedEmail}. Please check your inbox and spam folder.` 
-        : `Verification code generated and sent to ${trimmedEmail}. Please enter the 6-digit OTP code to continue.`,
+        ? `A 6-digit verification code has been sent to ${trimmedEmail} (valid for 5 minutes). Please check your inbox and spam folder.` 
+        : `Verification code generated and sent to ${trimmedEmail} (valid for 5 minutes). Please enter the 6-digit OTP code to continue.`,
       emailSent
     });
   } catch (error) {
@@ -598,7 +598,7 @@ exports.verifyOtp = async (req, res) => {
     if (record.expiresAt && record.expiresAt < new Date()) {
       await OtpVerification.deleteOne({ _id: record._id });
       return res.status(400).json({ 
-        message: 'This OTP code has expired. Please click "Send Verification OTP" to request a new code.' 
+        message: 'This OTP code has expired (valid for 5 minutes only). Please click "Send Verification OTP" to request a new code.' 
       });
     }
 
@@ -648,6 +648,14 @@ exports.setPassword = async (req, res) => {
     }
     const cleanPhone = phoneValidation.phone;
     const trimmedEmail = email.trim().toLowerCase();
+
+    // Strict college domain verification: Must end with @bitm.edu.in
+    if (!trimmedEmail.endsWith('@bitm.edu.in')) {
+      return res.status(400).json({ 
+        message: 'Invalid college email ID. Only official college email addresses ending with @bitm.edu.in are allowed.' 
+      });
+    }
+
     const userGender = (gender === 'female' || gender === 'ladies') ? 'female' : 'male';
     const finalDepartment = inferDepartment(department, usn);
     const isFaculty = userType === 'faculty';

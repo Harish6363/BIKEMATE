@@ -89,18 +89,63 @@ test('Email OTP Backend Generation & Verification Suite', async (t) => {
     assert.equal(consumed, null, 'OTP should be deleted once verified');
   });
 
-  await t.test('4. verifyOtp succeeds with mixed-case email (e.g. 3BR23AI068@bitm.edu.in)', async () => {
-    const uppercaseEmail = '3BR23AI068@bitm.edu.in';
+  await t.test('4. sendOtp REJECTS non-@bitm.edu.in emails with invalid email warning', async () => {
+    const invalidEmails = ['student@gmail.com', 'user@outlook.com', 'someone@college.edu', 'test@bitm.ac.in'];
+    for (const invalidEmail of invalidEmails) {
+      const req = {
+        body: {
+          email: invalidEmail,
+          usn: '3BR23AI099',
+          userType: 'student'
+        }
+      };
+      const res = createMockRes();
+      await authController.sendOtp(req, res);
+      assert.equal(res.statusCode, 400);
+      assert.match(res.data.message, /invalid college email id/i);
+    }
+  });
+
+  await t.test('5. verifyOtp REJECTS expired OTP with 5-minute expiration warning', async () => {
+    // Insert a pre-expired OTP record
+    const expiredEmail = 'expired.test@bitm.edu.in';
+    await OtpVerification.deleteMany({ email: expiredEmail });
+    await OtpVerification.create({
+      email: expiredEmail,
+      otp: '123456',
+      expiresAt: new Date(Date.now() - 1000) // 1 second in the past
+    });
+
+    const req = {
+      body: {
+        email: expiredEmail,
+        otp: '123456'
+      }
+    };
+    const res = createMockRes();
+    await authController.verifyOtp(req, res);
+    assert.equal(res.statusCode, 400);
+    assert.match(res.data.message, /expired/i);
+    assert.match(res.data.message, /5 minutes/i);
+  });
+
+  await t.test('6. verifyOtp succeeds with mixed-case email (e.g. 3BR23AI888@bitm.edu.in)', async () => {
+    const uppercaseEmail = '3BR23AI888@bitm.edu.in';
+    const testUsn = '3BR23AI888';
+    const User = require('../models/User');
+    await User.deleteMany({ $or: [{ usn: testUsn }, { email: uppercaseEmail.toLowerCase() }] });
+    await OtpVerification.deleteMany({ email: uppercaseEmail.toLowerCase() });
+
     const sendReq = {
       body: {
         email: uppercaseEmail,
-        usn: '3BR23AI068',
+        usn: testUsn,
         userType: 'student'
       }
     };
     const sendRes = createMockRes();
     await authController.sendOtp(sendReq, sendRes);
-    assert.equal(sendRes.statusCode, 200);
+    assert.equal(sendRes.statusCode, 200, sendRes.data?.message);
 
     // Retrieve generated OTP from DB
     const record = await OtpVerification.findOne({
@@ -114,7 +159,7 @@ test('Email OTP Backend Generation & Verification Suite', async (t) => {
     // Test verifying with lowercase email
     const verifyReq1 = {
       body: {
-        email: '3br23ai068@bitm.edu.in',
+        email: '3br23ai888@bitm.edu.in',
         otp: record.otp
       }
     };
