@@ -67,6 +67,17 @@ function Register() {
   const [usnError, setUsnError] = useState('');
   const [empChecking, setEmpChecking] = useState(false);
   const [empError, setEmpError] = useState('');
+  const [otpCooldown, setOtpCooldown] = useState(0);
+
+  useEffect(() => {
+    let timer;
+    if (otpCooldown > 0) {
+      timer = setInterval(() => {
+        setOtpCooldown(c => Math.max(0, c - 1));
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [otpCooldown]);
 
   const navigate = useNavigate();
   const API = 'http://localhost:5000/api/auth';
@@ -295,6 +306,7 @@ function Register() {
   };
 
   const sendOtp = async () => {
+    if (otpCooldown > 0) return;
     setError(''); 
     setSuccess('');
     setLoading(true);
@@ -315,7 +327,7 @@ function Register() {
         return;
       }
 
-      const cleanEmail = formData.email.trim().toLowerCase();
+      const cleanEmail = formData.email.trim().toLowerCase().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
 
       // Strict validation: must end with @bitm.edu.in
       if (!cleanEmail.endsWith('@bitm.edu.in')) {
@@ -328,12 +340,14 @@ function Register() {
         email: cleanEmail,
         usn: formData.usn,
         employeeId: formData.employeeId,
+        name: formData.name,
         userType
       });
 
       // Clear the OTP entry field so user must manually type the code received in email
       setOtp('');
-      setSuccess(res.data.message || `Verification code sent to ${cleanEmail} (valid for 5 minutes)! Please check your email inbox.`);
+      setOtpCooldown(60); // 60s cooldown to prevent multiple clicks from invalidating codes
+      setSuccess(res.data.message || `Verification code sent to ${cleanEmail} (valid for 5 minutes)!`);
     }
     catch (err) { 
       setError(err.response?.data?.message || 'Error generating or sending OTP. Please check your email address.'); 
@@ -345,7 +359,7 @@ function Register() {
     setError(''); 
     setSuccess('');
     const cleanOtp = (otp || '').replace(/\D/g, '').trim();
-    const cleanEmail = (formData.email || '').trim().toLowerCase();
+    const cleanEmail = (formData.email || '').trim().toLowerCase().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
 
     if (!cleanEmail) {
       setError('Email address is missing. Please enter your college email.');
@@ -1013,7 +1027,11 @@ function Register() {
                           name="email" 
                           type="email" 
                           value={formData.email} 
-                          onChange={handle} 
+                          onChange={(e) => {
+                            const clean = e.target.value.toLowerCase().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+                            setFormData(f => ({ ...f, email: clean }));
+                            if (error) setError('');
+                          }} 
                           className={`w-full px-4 py-2.5 rounded-xl bg-gray-50 border text-gray-900 placeholder-gray-400 focus:outline-none focus:bg-white focus:ring-1 transition text-sm ${
                             isBitmEmail
                               ? 'border-[#00b87c] focus:border-[#00b87c] focus:ring-[#00b87c] bg-emerald-50/20'
@@ -1043,16 +1061,35 @@ function Register() {
                     </div>
                   )}
 
-                  {/* Send Email OTP */}
+                  {/* Send Email OTP with Cooldown */}
                   <button 
                     type="button"
                     onClick={sendOtp} 
-                    disabled={loading} 
-                    className="w-full py-2.5 rounded-xl font-semibold text-[#00a86b] border border-[#98e6c4] bg-[#e1f7ec] hover:bg-[#daf1e8] transition text-xs cursor-pointer flex items-center justify-center gap-1.5"
+                    disabled={loading || otpCooldown > 0} 
+                    className={`w-full py-2.5 rounded-xl font-semibold text-xs transition flex items-center justify-center gap-1.5 ${
+                      otpCooldown > 0
+                        ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                        : 'text-[#00a86b] border border-[#98e6c4] bg-[#e1f7ec] hover:bg-[#daf1e8] cursor-pointer'
+                    }`}
                   >
                     <span>📧</span>
-                    <span>{loading ? 'Sending code...' : 'Send Verification OTP to Email (Valid for 5 mins)'}</span>
+                    <span>
+                      {loading 
+                        ? 'Sending code...' 
+                        : otpCooldown > 0 
+                        ? `Resend OTP in ${otpCooldown}s` 
+                        : 'Send Verification OTP to Email (Valid for 5 mins)'}
+                    </span>
                   </button>
+
+                  {/* Office 365 / Outlook Delivery Tip */}
+                  <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200 text-blue-900 text-xs flex items-start gap-2.5">
+                    <span className="text-base leading-none">📬</span>
+                    <div className="text-[11px] leading-relaxed">
+                      <span className="font-semibold block text-blue-950">Where to find your OTP email:</span>
+                      In college Outlook / Office 365, please check your <strong>Inbox</strong>, <strong>"Other" tab</strong>, and <strong>Junk Email</strong> folder.
+                    </div>
+                  </div>
 
                   <div>
                     <div className="flex items-center justify-between mb-1.5">

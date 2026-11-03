@@ -5,6 +5,7 @@ const AuditLog = require('../models/AuditLog');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
+const { sendVerificationOtpEmail, sendPasswordResetOtpEmail } = require('../services/emailService');
 const axios = require('axios');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -485,14 +486,14 @@ exports.sendOtp = async (req, res) => {
       }
     }
 
-    const trimmedEmail = email.trim().toLowerCase();
-    const existingEmail = await User.findOne({ email: trimmedEmail });
+    const cleanEmail = email.toLowerCase().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+    const existingEmail = await User.findOne({ email: cleanEmail });
     if (existingEmail) {
-      return res.status(400).json({ message: `Email ${trimmedEmail} is already registered. Please login instead.` });
+      return res.status(400).json({ message: `Email ${cleanEmail} is already registered. Please login instead.` });
     }
 
     // Strict college domain verification: Must end with @bitm.edu.in
-    if (!trimmedEmail.endsWith('@bitm.edu.in')) {
+    if (!cleanEmail.endsWith('@bitm.edu.in')) {
       return res.status(400).json({ 
         message: 'Invalid college email ID. Only official college email addresses ending with @bitm.edu.in are allowed.' 
       });
@@ -504,65 +505,41 @@ exports.sendOtp = async (req, res) => {
     // Delete any existing OTP for this email (case-insensitive) before creating a new one
     await OtpVerification.deleteMany({
       $or: [
-        { email: trimmedEmail },
-        { email: { $regex: new RegExp(`^${trimmedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } }
+        { email: cleanEmail },
+        { email: { $regex: new RegExp(`^${cleanEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } }
       ]
     });
-    await OtpVerification.create({ email: trimmedEmail, otp, expiresAt });
+    await OtpVerification.create({ email: cleanEmail, otp, expiresAt });
 
-    // Prominently log OTP to server console for easy testing/debugging
+    // Prominently log OTP to server console for testing/debugging
     console.log('\n======================================================');
     console.log(`🔑 [BIKEMATE OTP CODE]`);
-    console.log(`📧 Target Email : ${trimmedEmail}`);
+    console.log(`📧 Target Email : ${cleanEmail}`);
     console.log(`🔢 OTP Code     : ${otp}`);
     console.log(`⏰ Expires In   : 5 Minutes (Strict @bitm.edu.in Domain)`);
     console.log('======================================================\n');
 
-    // Attempt to send OTP via Gmail SMTP if credentials exist
-    let emailSent = false;
-    let emailErrorMsg = null;
-
-    if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
-      try {
-        const cleanPassword = process.env.GMAIL_APP_PASSWORD.replace(/\s+/g, '');
-        const transporter = nodemailer.createTransport({
-          service: 'gmail',
-          auth: {
-            user: process.env.GMAIL_USER,
-            pass: cleanPassword,
-          },
-        });
-
-        await transporter.sendMail({
-          from: `"BikeMate 🏍️" <${process.env.GMAIL_USER}>`,
-          to: trimmedEmail,
-          subject: 'Your BikeMate Verification OTP (Valid for 5 Minutes)',
-          html: `
-            <div style="font-family: Inter, sans-serif; max-width: 480px; margin: 0 auto; background: #0a0a0f; color: #e2e8f0; border-radius: 16px; padding: 40px; border: 1px solid #222235;">
-              <h2 style="color: #4361ee; margin-bottom: 8px;">BikeMate 🏍️</h2>
-              <p style="color: #9ca3af; margin-bottom: 24px;">Verify your BITM college email to complete registration.</p>
-              <div style="background: #1a1a28; border: 1px solid #4361ee33; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
-                <p style="margin: 0 0 8px; color: #9ca3af; font-size: 14px;">Your OTP Code</p>
-                <p style="margin: 0; font-size: 40px; font-weight: 800; letter-spacing: 12px; color: #ffffff;">${otp}</p>
-              </div>
-              <p style="color: #6b7280; font-size: 13px;">This OTP is valid for <strong style="color:#e2e8f0">5 minutes</strong> only. Do not share it with anyone.</p>
-              <p style="color: #6b7280; font-size: 13px; margin-top: 24px;">— The BikeMate Team</p>
-            </div>
-          `
-        });
-        emailSent = true;
-      } catch (mailErr) {
-        console.warn('⚠️ SMTP Email delivery warning:', mailErr.message);
-        emailErrorMsg = mailErr.message;
-      }
-    }
-
-    res.status(200).json({
-      message: emailSent 
-        ? `A 6-digit verification code has been sent to ${trimmedEmail} (valid for 5 minutes). Please check your inbox and spam folder.` 
-        : `Verification code generated and sent to ${trimmedEmail} (valid for 5 minutes). Please enter the 6-digit OTP code to continue.`,
-      emailSent
+    // Send OTP via dedicated pooled email service (RFC-compliant, multipart alternative, Outlook optimized)
+    const sendResult = await sendVerificationOtpEmail({
+      email: cleanEmail,
+      otp,
+      name: req.body.name || ''
     });
+
+    if (sendResult.success) {
+      return res.status(200).json({
+        message: `A 6-digit verification code has been sent to ${cleanEmail} (valid for 5 minutes). Note: Please check your Inbox, "Other" tab, and Junk/Spam folder.`,
+        emailSent: true,
+        messageId: sendResult.messageId
+      });
+    } else {
+      console.warn(`⚠️ [SMTP DELIVERY NOTICE] Email dispatch to ${cleanEmail} failed:`, sendResult.error);
+      return res.status(200).json({
+        message: `Verification code generated for ${cleanEmail} (valid for 5 minutes). (Delivery notice: ${sendResult.error || 'Server SMTP warning'}).`,
+        emailSent: false,
+        warning: sendResult.error
+      });
+    }
   } catch (error) {
     console.error('OTP send error:', error.message);
     res.status(500).json({ message: 'Failed to generate OTP', error: error.message });
@@ -577,7 +554,7 @@ exports.verifyOtp = async (req, res) => {
       return res.status(400).json({ message: 'Email and 6-digit OTP are required.' });
     }
 
-    const trimmedEmail = email.toString().trim().toLowerCase();
+    const trimmedEmail = email.toString().toLowerCase().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
     const cleanOtp = otp.toString().replace(/\D/g, '').trim();
 
     // Verify OTP against database record (case-insensitive on email, exact on OTP)
@@ -647,7 +624,7 @@ exports.setPassword = async (req, res) => {
       return res.status(400).json({ message: phoneValidation.message });
     }
     const cleanPhone = phoneValidation.phone;
-    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedEmail = email.toLowerCase().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
 
     // Strict college domain verification: Must end with @bitm.edu.in
     if (!trimmedEmail.endsWith('@bitm.edu.in')) {
@@ -932,40 +909,12 @@ exports.forgotPasswordSendOtp = async (req, res) => {
     console.log(`⏰ Expires In   : 10 Minutes`);
     console.log('======================================================\n');
 
-    let emailSent = false;
-    if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) {
-      try {
-        const cleanPassword = process.env.GMAIL_APP_PASSWORD.replace(/\s+/g, '');
-        const transporter = nodemailer.createTransport({
-          service: 'gmail',
-          auth: {
-            user: process.env.GMAIL_USER,
-            pass: cleanPassword,
-          },
-        });
-
-        await transporter.sendMail({
-          from: `"BikeMate 🏍️" <${process.env.GMAIL_USER}>`,
-          to: email,
-          subject: 'Your BikeMate Password Reset OTP',
-          html: `
-            <div style="font-family: Inter, sans-serif; max-width: 480px; margin: 0 auto; background: #0a0a0f; color: #e2e8f0; border-radius: 16px; padding: 40px; border: 1px solid #222235;">
-              <h2 style="color: #00b87c; margin-bottom: 8px;">BikeMate 🏍️</h2>
-              <p style="color: #9ca3af; margin-bottom: 24px;">Password Reset Request for ${user.name}.</p>
-              <div style="background: #142230; border: 1px solid #00b87c33; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
-                <p style="margin: 0 0 8px; color: #9ca3af; font-size: 14px;">Your Reset OTP Code</p>
-                <p style="margin: 0; font-size: 40px; font-weight: 800; letter-spacing: 12px; color: #ffffff;">${otp}</p>
-              </div>
-              <p style="color: #6b7280; font-size: 13px;">This OTP is valid for <strong style="color:#e2e8f0">10 minutes</strong>. Do not share it with anyone.</p>
-              <p style="color: #6b7280; font-size: 13px; margin-top: 24px;">— The BikeMate Team</p>
-            </div>
-          `
-        });
-        emailSent = true;
-      } catch (mailErr) {
-        console.warn('⚠️ SMTP Email delivery warning:', mailErr.message);
-      }
-    }
+    const sendResult = await sendPasswordResetOtpEmail({
+      email,
+      otp,
+      name: user.name
+    });
+    const emailSent = sendResult.success;
 
     const parts = email.split('@');
     const maskedUser = parts[0].length > 2 
