@@ -230,3 +230,4 @@ module.exports = {
   sendVerificationOtpEmail,
   sendPasswordResetOtpEmail
 };
+
