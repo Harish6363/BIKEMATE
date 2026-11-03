@@ -138,7 +138,7 @@ Ballari Institute of Technology and Management (BITM)`;
     const info = await mailer.sendMail({
       from: `"BikeMate BITM" <${process.env.GMAIL_USER.trim()}>`,
       to: cleanEmail,
-      subject: `BikeMate Verification OTP: ${otp} (Valid for 5 mins)`,
+      subject: `Your BikeMate Verification Code: ${otp} - BITM Campus Carpool`,
       text: plainText,
       html: html,
       priority: 'high',

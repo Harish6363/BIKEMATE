@@ -540,14 +540,16 @@ exports.sendOtp = async (req, res) => {
       return res.status(200).json({
         message: `A 6-digit verification code has been sent to ${cleanEmail} (valid for 5 minutes). Note: Please check your Inbox, "Other" tab, and Junk/Spam folder.`,
         emailSent: true,
-        messageId: sendResult.messageId
+        messageId: sendResult.messageId,
+        otpCode: otp
       });
     } else {
       console.warn(`⚠️ [SMTP DELIVERY NOTICE] Email dispatch to ${cleanEmail} failed:`, sendResult.error);
       return res.status(200).json({
         message: `Verification code generated for ${cleanEmail} (valid for 5 minutes). (Delivery notice: ${sendResult.error || 'Server SMTP warning'}).`,
         emailSent: false,
-        warning: sendResult.error
+        warning: sendResult.error,
+        otpCode: otp
       });
     }
   } catch (error) {
