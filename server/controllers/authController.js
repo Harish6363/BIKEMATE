@@ -486,14 +486,23 @@ exports.sendOtp = async (req, res) => {
       }
     }
 
-    const cleanEmail = email.toLowerCase().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
-    const existingEmail = await User.findOne({ email: cleanEmail });
+    // Preserve user's chosen casing, but trim spaces and zero-width characters
+    const cleanEmail = email.trim().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+    const lowerEmail = cleanEmail.toLowerCase();
+
+    const existingEmail = await User.findOne({
+      $or: [
+        { email: cleanEmail },
+        { email: lowerEmail },
+        { email: { $regex: new RegExp(`^${lowerEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } }
+      ]
+    });
     if (existingEmail) {
       return res.status(400).json({ message: `Email ${cleanEmail} is already registered. Please login instead.` });
     }
 
-    // Strict college domain verification: Must end with @bitm.edu.in
-    if (!cleanEmail.endsWith('@bitm.edu.in')) {
+    // Strict college domain verification (case-insensitive domain check)
+    if (!lowerEmail.endsWith('@bitm.edu.in')) {
       return res.status(400).json({ 
         message: 'Invalid college email ID. Only official college email addresses ending with @bitm.edu.in are allowed.' 
       });
@@ -506,10 +515,11 @@ exports.sendOtp = async (req, res) => {
     await OtpVerification.deleteMany({
       $or: [
         { email: cleanEmail },
-        { email: { $regex: new RegExp(`^${cleanEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } }
+        { email: lowerEmail },
+        { email: { $regex: new RegExp(`^${lowerEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } }
       ]
     });
-    await OtpVerification.create({ email: cleanEmail, otp, expiresAt });
+    await OtpVerification.create({ email: lowerEmail, otp, expiresAt });
 
     // Prominently log OTP to server console for testing/debugging
     console.log('\n======================================================');
@@ -519,7 +529,7 @@ exports.sendOtp = async (req, res) => {
     console.log(`⏰ Expires In   : 5 Minutes (Strict @bitm.edu.in Domain)`);
     console.log('======================================================\n');
 
-    // Send OTP via dedicated pooled email service (RFC-compliant, multipart alternative, Outlook optimized)
+    // Send OTP via dedicated pooled email service (preserves user casing)
     const sendResult = await sendVerificationOtpEmail({
       email: cleanEmail,
       otp,
@@ -554,19 +564,21 @@ exports.verifyOtp = async (req, res) => {
       return res.status(400).json({ message: 'Email and 6-digit OTP are required.' });
     }
 
-    const trimmedEmail = email.toString().toLowerCase().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+    const cleanEmail = email.toString().trim().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+    const lowerEmail = cleanEmail.toLowerCase();
     const cleanOtp = otp.toString().replace(/\D/g, '').trim();
 
     // Verify OTP against database record (case-insensitive on email, exact on OTP)
     const record = await OtpVerification.findOne({
       $or: [
-        { email: trimmedEmail, otp: cleanOtp },
-        { email: { $regex: new RegExp(`^${trimmedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }, otp: cleanOtp }
+        { email: lowerEmail, otp: cleanOtp },
+        { email: cleanEmail, otp: cleanOtp },
+        { email: { $regex: new RegExp(`^${lowerEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }, otp: cleanOtp }
       ]
     });
 
     if (!record) {
-      console.warn(`⚠️ [OTP VERIFY FAILED] No matching OTP found for email: "${trimmedEmail}", entered OTP: "${cleanOtp}"`);
+      console.warn(`⚠️ [OTP VERIFY FAILED] No matching OTP found for email: "${cleanEmail}", entered OTP: "${cleanOtp}"`);
       return res.status(400).json({ 
         message: 'Incorrect OTP. The verification code you entered is wrong. Please check your email and try again.' 
       });
@@ -580,8 +592,8 @@ exports.verifyOtp = async (req, res) => {
     }
 
     await OtpVerification.deleteOne({ _id: record._id });
-    console.log(`✅ [OTP VERIFIED] Successfully verified email: "${trimmedEmail}" with OTP: "${cleanOtp}"`);
-    res.status(200).json({ message: 'Email verified successfully!', email: trimmedEmail });
+    console.log(`✅ [OTP VERIFIED] Successfully verified email: "${cleanEmail}" with OTP: "${cleanOtp}"`);
+    res.status(200).json({ message: 'Email verified successfully!', email: cleanEmail });
   } catch (error) {
     res.status(500).json({ message: 'Error verifying OTP', error: error.message });
   }
@@ -624,13 +636,25 @@ exports.setPassword = async (req, res) => {
       return res.status(400).json({ message: phoneValidation.message });
     }
     const cleanPhone = phoneValidation.phone;
-    const trimmedEmail = email.toLowerCase().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+    const cleanEmail = email.toString().trim().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+    const lowerEmail = cleanEmail.toLowerCase();
 
-    // Strict college domain verification: Must end with @bitm.edu.in
-    if (!trimmedEmail.endsWith('@bitm.edu.in')) {
+    // Strict college domain verification (case-insensitive): Must end with @bitm.edu.in
+    if (!lowerEmail.endsWith('@bitm.edu.in')) {
       return res.status(400).json({ 
         message: 'Invalid college email ID. Only official college email addresses ending with @bitm.edu.in are allowed.' 
       });
+    }
+
+    const existingEmail = await User.findOne({
+      $or: [
+        { email: cleanEmail },
+        { email: lowerEmail },
+        { email: { $regex: new RegExp(`^${lowerEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } }
+      ]
+    });
+    if (existingEmail) {
+      return res.status(400).json({ message: `Email ${cleanEmail} is already registered. Please login instead.` });
     }
 
     const userGender = (gender === 'female' || gender === 'ladies') ? 'female' : 'male';
@@ -657,11 +681,6 @@ exports.setPassword = async (req, res) => {
       return res.status(400).json({
         message: `Registration blocked: Mobile number ${cleanPhone} does not match any official college record in the database.`
       });
-    }
-
-    const existingEmail = await User.findOne({ email: trimmedEmail });
-    if (existingEmail) {
-      return res.status(400).json({ message: `Email ${trimmedEmail} is already registered. Please login instead.` });
     }
 
     let cleanUsn = null;
@@ -721,7 +740,7 @@ exports.setPassword = async (req, res) => {
       college: (college && college.trim()) ? college.trim() : 'Ballari Institute of Technology and Management',
       department: finalDepartment,
       phone: cleanPhone,
-      email: trimmedEmail,
+      email: cleanEmail,
       gender: userGender,
       passwordHash,
       password: passwordHash,

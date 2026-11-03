@@ -48,7 +48,7 @@ async function sendVerificationOtpEmail({ email, otp, name }) {
     };
   }
 
-  const cleanEmail = email.toLowerCase().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+  const cleanEmail = (email || '').trim().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
   const greeting = name ? `Hello ${name},` : 'Hello,';
 
   const plainText = `${greeting}
@@ -173,7 +173,7 @@ async function sendPasswordResetOtpEmail({ email, otp, name }) {
     return { success: false, error: 'Gmail SMTP credentials not configured.' };
   }
 
-  const cleanEmail = email.toLowerCase().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+  const cleanEmail = (email || '').trim().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
   const greeting = name ? `Hello ${name},` : 'Hello,';
 
   const plainText = `${greeting}

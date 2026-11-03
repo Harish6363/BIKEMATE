@@ -327,10 +327,10 @@ function Register() {
         return;
       }
 
-      const cleanEmail = formData.email.trim().toLowerCase().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+      const cleanEmail = formData.email.trim().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
 
-      // Strict validation: must end with @bitm.edu.in
-      if (!cleanEmail.endsWith('@bitm.edu.in')) {
+      // Strict validation: must end with @bitm.edu.in (case-insensitive check)
+      if (!cleanEmail.toLowerCase().endsWith('@bitm.edu.in')) {
         setError('Invalid college email ID. Only official college email addresses ending with @bitm.edu.in are allowed.');
         setLoading(false);
         return;
@@ -359,13 +359,13 @@ function Register() {
     setError(''); 
     setSuccess('');
     const cleanOtp = (otp || '').replace(/\D/g, '').trim();
-    const cleanEmail = (formData.email || '').trim().toLowerCase().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+    const cleanEmail = (formData.email || '').trim().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
 
     if (!cleanEmail) {
       setError('Email address is missing. Please enter your college email.');
       return;
     }
-    if (!cleanEmail.endsWith('@bitm.edu.in')) {
+    if (!cleanEmail.toLowerCase().endsWith('@bitm.edu.in')) {
       setError('Invalid college email ID. Only official college email addresses ending with @bitm.edu.in are allowed.');
       return;
     }
@@ -1028,7 +1028,7 @@ function Register() {
                           type="email" 
                           value={formData.email} 
                           onChange={(e) => {
-                            const clean = e.target.value.toLowerCase().replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+                            const clean = e.target.value.replace(/[\s\u200B-\u200D\uFEFF]/g, '');
                             setFormData(f => ({ ...f, email: clean }));
                             if (error) setError('');
                           }} 
